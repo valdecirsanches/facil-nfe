@@ -1,0 +1,7 @@
+{
+  "applied": [
+    "migration_001_add_ncm_cfop_tables",
+    "migration_007_add_user_type",
+    "migration_010_create_configuracoes"
+  ]
+}

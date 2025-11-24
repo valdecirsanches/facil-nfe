@@ -1,0 +1,70 @@
+╔══════════════════════════════════════════════════════════════╗
+║                                                              ║
+║   ⚠️  ERRO DE LOGIN DETECTADO                               ║
+║                                                              ║
+║   O banco de dados precisa ser corrigido antes de usar      ║
+║   o sistema. Execute os comandos abaixo:                    ║
+║                                                              ║
+╚══════════════════════════════════════════════════════════════╝
+
+┌──────────────────────────────────────────────────────────────┐
+│  PASSO 1: Abra o terminal no diretório do backend           │
+└──────────────────────────────────────────────────────────────┘
+
+    cd backend
+
+
+┌──────────────────────────────────────────────────────────────┐
+│  PASSO 2: Execute o script de correção                      │
+└──────────────────────────────────────────────────────────────┘
+
+    npm run fix
+
+
+┌──────────────────────────────────────────────────────────────┐
+│  PASSO 3: Inicie o backend                                  │
+└──────────────────────────────────────────────────────────────┘
+
+    npm start
+
+
+┌──────────────────────────────────────────────────────────────┐
+│  PASSO 4: Recarregue a página de login                      │
+└──────────────────────────────────────────────────────────────┘
+
+    Pressione F5 no navegador
+
+
+╔══════════════════════════════════════════════════════════════╗
+║                                                              ║
+║   ✅ PRONTO! Agora você pode fazer login com:               ║
+║                                                              ║
+║   Email: admin@nfe.com                                       ║
+║   Senha: admin123                                            ║
+║                                                              ║
+╚══════════════════════════════════════════════════════════════╝
+
+
+═══════════════════════════════════════════════════════════════
+
+  O QUE O SCRIPT FAZ:
+
+  ✓ Adiciona campo 'tipo' na tabela de usuários
+  ✓ Atualiza usuário admin para tipo 'super'
+  ✓ Reseta senha do admin para 'admin123'
+  ✓ Corrige todos os usuários existentes
+
+═══════════════════════════════════════════════════════════════
+
+
+  ALTERNATIVA: Começar do Zero
+
+  Se preferir deletar tudo e recomeçar:
+
+    cd backend
+    rm *.db
+    npm start
+
+  Isso criará um banco de dados limpo com o admin configurado.
+
+═══════════════════════════════════════════════════════════════
