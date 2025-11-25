@@ -97,11 +97,9 @@ mainDb.exec(`
     crt TEXT DEFAULT '1',
     endereco TEXT,
     numero TEXT,
-    bairro TEXT,
     cidade TEXT,
     estado TEXT,
     cep TEXT,
-    codigo_municipio TEXT,
     telefone TEXT,
     email TEXT,
     logo_path TEXT,
@@ -524,9 +522,9 @@ app.post('/api/empresas', authenticateToken, (req, res) => {
     // SANITIZAR CEP ANTES DE SALVAR
     const cepSanitizado = sanitizeCEP(req.body.cep);
     const result = mainDb.prepare(`
-      INSERT INTO empresas (razao_social, nome_fantasia, cnpj, ie, crt, endereco, numero, bairro, cidade, estado, cep, codigo_municipio, telefone, email)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(req.body.razao_social, req.body.nome_fantasia, req.body.cnpj, req.body.ie, req.body.crt || '1', req.body.endereco, req.body.numero, req.body.bairro, req.body.cidade, req.body.estado, cepSanitizado, req.body.codigo_municipio, req.body.telefone, req.body.email);
+      INSERT INTO empresas (razao_social, nome_fantasia, cnpj, ie, crt, endereco, numero, cidade, estado, cep, telefone, email)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(req.body.razao_social, req.body.nome_fantasia, req.body.cnpj, req.body.ie, req.body.crt || '1', req.body.endereco, req.body.numero, req.body.cidade, req.body.estado, cepSanitizado, req.body.telefone, req.body.email);
     getCompanyDb(result.lastInsertRowid);
     res.json({
       id: result.lastInsertRowid
@@ -543,9 +541,9 @@ app.put('/api/empresas/:id', authenticateToken, (req, res) => {
     const cepSanitizado = sanitizeCEP(req.body.cep);
     mainDb.prepare(`
       UPDATE empresas 
-      SET razao_social = ?, nome_fantasia = ?, cnpj = ?, ie = ?, crt = ?, endereco = ?, numero = ?, bairro = ?, cidade = ?, estado = ?, cep = ?, codigo_municipio = ?, telefone = ?, email = ?
+      SET razao_social = ?, nome_fantasia = ?, cnpj = ?, ie = ?, crt = ?, endereco = ?, numero = ?, cidade = ?, estado = ?, cep = ?, telefone = ?, email = ?
       WHERE id = ?
-    `).run(req.body.razao_social, req.body.nome_fantasia, req.body.cnpj, req.body.ie, req.body.crt || '1', req.body.endereco, req.body.numero, req.body.bairro, req.body.cidade, req.body.estado, cepSanitizado, req.body.codigo_municipio, req.body.telefone, req.body.email, req.params.id);
+    `).run(req.body.razao_social, req.body.nome_fantasia, req.body.cnpj, req.body.ie, req.body.crt || '1', req.body.endereco, req.body.numero, req.body.cidade, req.body.estado, cepSanitizado, req.body.telefone, req.body.email, req.params.id);
     res.json({
       success: true
     });

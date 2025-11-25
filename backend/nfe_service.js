@@ -322,6 +322,7 @@ class NFEService {
     if (crt === '1' || crt === '2') {
       // Simples Nacional - usar CST 51 (Diferimento)
       ipiTag = {
+        cEnq: '999',
         IPINT: {
           CST: '51'
         }
@@ -329,6 +330,7 @@ class NFEService {
     } else {
       // Regime Normal - usar CST 52 (Saída isenta)
       ipiTag = {
+        cEnq: '999',
         IPINT: {
           CST: '52'
         }
@@ -336,6 +338,7 @@ class NFEService {
     }
     const xml = {
       NFe: {
+        // ← NAMESPACE OBRIGATÓRIO ADICIONADO!
         infNFe: {
           '@_Id': `NFe${chave}`,
           '@_versao': this.versao,
@@ -398,7 +401,7 @@ class NFEService {
             '@_nItem': (index + 1).toString(),
             prod: {
               cProd: item.produto_id.toString(),
-              cEAN: '0000000000000',
+              cEAN: 'SEM GTIN',
               xProd: removeAcentos(item.descricao),
               NCM: item.ncm || '84716053',
               CFOP: nfe.cfop,
@@ -406,7 +409,7 @@ class NFEService {
               qCom: parseFloat(item.quantidade || 0).toFixed(4),
               vUnCom: parseFloat(item.valor_unitario || 0).toFixed(4),
               vProd: parseFloat(item.valor_total || 0).toFixed(2),
-              cEANTrib: '0000000000000',
+              cEANTrib: 'SEM GTIN',
               uTrib: 'UN',
               qTrib: parseFloat(item.quantidade || 0).toFixed(4),
               vUnTrib: parseFloat(item.valor_unitario || 0).toFixed(4),
@@ -475,9 +478,10 @@ class NFEService {
       }
     });
     const xmlString = builder.build(xml);
-    console.log('\n✅ XML GERADO COM SUCESSO');
+    console.log('\n✅ XML GERADO COM NAMESPACE CORRETO!');
     console.log(`   Tamanho: ${xmlString.length} bytes`);
-    console.log(`   Id: NFe${chave}\n`);
+    console.log(`   Id: NFe${chave}`);
+    console.log(`   ✅ Namespace: http://www.portalfiscal.inf.br/nfe\n`);
     return {
       xml: xmlString,
       chave
@@ -712,13 +716,18 @@ class NFEService {
       // IMPORTANTE: Remover milissegundos da data no XML
       const xmlSemMilissegundos = xml.replace(/T(\d{2}:\d{2}:\d{2})\.\d{3}(-\d{2}:\d{2})/g, 'T$1$2');
 
+      // CRÍTICO: REMOVER xmlns da tag <NFe> para evitar duplicação no envelope
+      // Quando <NFe> está dentro de <enviNFe>, ela herda o namespace
+      const xmlSemNamespace = xmlSemMilissegundos.replace(/<NFe xmlns="http:\/\/www\.portalfiscal\.inf\.br\/nfe">/, '<NFe>');
+      console.log('🔧 Namespace removido da tag <NFe> (será herdado de <enviNFe>)');
+
       // SALVAR XML COMPLETO EM ARQUIVO PARA DEBUG
       const debugPath = path.join(__dirname, 'Arqs', `empresa_${empresaId}`, 'logs', `debug_xml_${lote}.xml`);
-      fs.writeFileSync(debugPath, xmlSemMilissegundos, 'utf8');
+      fs.writeFileSync(debugPath, xmlSemNamespace, 'utf8');
       console.log(`📝 XML completo salvo em: ${debugPath}`);
 
       // Montar envelope SOAP com o XML dentro de enviNFe
-      const envelope = `<?xml version="1.0" encoding="UTF-8"?><soap12:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap12="http://www.w3.org/2003/05/soap-envelope"><soap12:Body><nfeDadosMsg xmlns="http://www.portalfiscal.inf.br/nfe/wsdl/NFeAutorizacao4"><enviNFe xmlns="http://www.portalfiscal.inf.br/nfe" versao="4.00"><idLote>${lote}</idLote><indSinc>1</indSinc>${xmlSemMilissegundos}</enviNFe></nfeDadosMsg></soap12:Body></soap12:Envelope>`;
+      const envelope = `<?xml version="1.0" encoding="UTF-8"?><soap12:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap12="http://www.w3.org/2003/05/soap-envelope"><soap12:Body><nfeDadosMsg xmlns="http://www.portalfiscal.inf.br/nfe/wsdl/NFeAutorizacao4"><enviNFe xmlns="http://www.portalfiscal.inf.br/nfe" versao="4.00"><idLote>${lote}</idLote><indSinc>1</indSinc>${xmlSemNamespace}</enviNFe></nfeDadosMsg></soap12:Body></soap12:Envelope>`;
 
       // SALVAR ENVELOPE COMPLETO
       const envelopePath = path.join(__dirname, 'Arqs', `empresa_${empresaId}`, 'logs', `debug_envelope_${lote}.xml`);
@@ -727,12 +736,13 @@ class NFEService {
       console.log('📤 Enviando NFe para SEFAZ...');
       console.log(`📍 URL: ${SEFAZ_URLS[uf].autorizacao}`);
       console.log(`🔐 Usando certificado: Sim`);
-      console.log(`📦 Tamanho do XML: ${xmlSemMilissegundos.length} bytes`);
+      console.log(`📦 Tamanho do XML: ${xmlSemNamespace.length} bytes`);
       console.log(`📦 Tamanho do envelope: ${envelope.length} bytes`);
       console.log(`📄 Verificando estrutura do envelope:`);
       console.log(`   - Tem <enviNFe>: ${envelope.includes('<enviNFe') ? '✅' : '❌'}`);
       console.log(`   - Tem <idLote>: ${envelope.includes('<idLote>') ? '✅' : '❌'}`);
       console.log(`   - Tem <NFe>: ${envelope.includes('<NFe') ? '✅' : '❌'}`);
+      console.log(`   - <NFe> SEM xmlns: ${!envelope.includes('<NFe xmlns=') ? '✅ CORRETO' : '❌ DUPLICADO'}`);
       console.log(`   - Tem <Signature>: ${envelope.includes('<Signature') ? '✅ ASSINADO' : '❌ SEM ASSINATURA'}`);
 
       // Mostrar primeiros 500 caracteres do envelope para debug
