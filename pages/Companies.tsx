@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react'
+import { toast, Toaster } from 'sonner';
 import { Header } from '../components/Header'
 import { Card } from '../components/ui/Card'
 import { Input } from '../components/ui/Input'
@@ -95,7 +96,7 @@ export function Companies() {
     e.preventDefault()
     // Validar código do município
     if (!formData.codigo_municipio) {
-      alert(
+      toast.error(
         'Por favor, busque o CEP para preencher o código do município automaticamente.',
       )
       return
@@ -108,7 +109,7 @@ export function Companies() {
             (c) => c.cnpj === formData.cnpj && c.id !== editingId,
           )
           if (cnpjExists) {
-            alert('Este CNPJ já está cadastrado em outra empresa.')
+            toast.error('Este CNPJ já está cadastrado em outra empresa.')
             return
           }
         }
@@ -119,8 +120,7 @@ export function Companies() {
       } else {
         const cnpjExists = companies.some((c) => c.cnpj === formData.cnpj)
         if (cnpjExists) {
-          alert(
-            'Este CNPJ já está cadastrado. Use um CNPJ diferente ou edite a empresa existente.',
+          toast.error('Este CNPJ já está cadastrado. Use um CNPJ diferente ou edite a empresa existente.',
           )
           return
         }
@@ -148,11 +148,11 @@ export function Companies() {
     } catch (error: any) {
       console.error('Error saving company:', error)
       if (error.message && error.message.includes('UNIQUE constraint failed')) {
-        alert(
+        toast.error(
           'Este CNPJ já está cadastrado. Use um CNPJ diferente ou edite a empresa existente.',
         )
       } else {
-        alert('Erro ao salvar empresa. Tente novamente.')
+        toast.error('Erro ao salvar empresa. Tente novamente.')
       }
     }
   }

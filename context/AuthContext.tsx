@@ -24,7 +24,8 @@ export function AuthProvider({
   const [user, setUser] = useState<User | null>(null);
   useEffect(() => {
     const storedUser = localStorage.getItem('user');
-    if (storedUser) {
+    const storedToken = localStorage.getItem('token');
+    if (storedUser && storedToken) {
       setUser(JSON.parse(storedUser));
     }
   }, []);
@@ -34,6 +35,8 @@ export function AuthProvider({
       if (authenticatedUser) {
         setUser(authenticatedUser);
         localStorage.setItem('user', JSON.stringify(authenticatedUser));
+        // Limpar cache do CompanyContext
+        localStorage.removeItem('active_company_id');
         return true;
       }
       return false;
@@ -45,6 +48,7 @@ export function AuthProvider({
   const logout = () => {
     setUser(null);
     localStorage.removeItem('user');
+    localStorage.removeItem('active_company_id');
     db.clearToken();
   };
   const isSuperUser = user?.tipo === 'super';

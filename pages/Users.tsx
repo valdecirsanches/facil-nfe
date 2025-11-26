@@ -8,6 +8,7 @@ import { Table } from '../components/ui/Table';
 import { UserIcon, EditIcon, ShieldIcon, ShieldCheckIcon, UserCheckIcon } from 'lucide-react';
 import { db } from '../utils/database';
 import { useAuth } from '../context/AuthContext';
+import { toast, Toaster } from 'sonner';
 export function Users() {
   const {
     user,
@@ -72,7 +73,7 @@ export function Users() {
         userData.empresa_id = user?.empresa_id || null;
         // Admin não pode criar super users ou outros admins
         if (userData.tipo === 'super' || userData.tipo === 'admin') {
-          alert('Você não tem permissão para criar usuários Super ou Admin');
+          toast.error('Você não tem permissão para criar usuários Super ou Admin');
           return;
         }
       }
@@ -83,7 +84,7 @@ export function Users() {
         });
       } else {
         if (!userData.senha) {
-          alert('Senha é obrigatória para novos usuários');
+          toast.error('Você não tem permissão para criar usuários Super ou Admin');
           return;
         }
         await db.createUser(userData);
@@ -92,7 +93,7 @@ export function Users() {
       handleCancel();
     } catch (error) {
       console.error('Error saving user:', error);
-      alert('Erro ao salvar usuário');
+      toast.error('Erro ao salvar usuário');
     }
   };
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {

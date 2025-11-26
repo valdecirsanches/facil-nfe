@@ -1,67 +1,68 @@
-import React, { useState } from 'react';
-import { Sidebar } from './components/Sidebar';
-import { TopBar } from './components/TopBar';
+import React, { useEffect, useState } from 'react';
+import { Login } from './pages/Login';
+import { Register } from './pages/Register';
 import { Dashboard } from './pages/Dashboard';
-import { NewNFe } from './pages/NewNFe';
-import { NFeList } from './pages/NFeList';
-import { Companies } from './pages/Companies';
-import { CompanySettings } from './pages/CompanySettings';
 import { Clients } from './pages/Clients';
 import { Products } from './pages/Products';
 import { Carriers } from './pages/Carriers';
+import { NewNFe } from './pages/NewNFe';
+import { NFeList } from './pages/NFeList';
 import { Users } from './pages/Users';
-import { DatabaseInfo } from './pages/DatabaseInfo';
+import { Companies } from './pages/Companies';
 import { SystemSettings } from './pages/SystemSettings';
-import { Login } from './pages/Login';
+import { DatabaseInfo } from './pages/DatabaseInfo';
+import { Subscription } from './pages/Subscription';
+import { Billing } from './pages/Billing';
+import { Sidebar } from './components/Sidebar';
+import { TopBar } from './components/TopBar';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { CompanyProvider } from './context/CompanyContext';
+import { Toaster } from 'sonner';
+type Page = 'dashboard' | 'clients' | 'products' | 'carriers' | 'new-nfe' | 'nfe-list' | 'users' | 'companies' | 'system-settings' | 'database-info' | 'subscription' | 'billing';
 function AppContent() {
   const {
     user
   } = useAuth();
-  const [currentPage, setCurrentPage] = useState('dashboard');
-  if (!user) {
-    return <Login />;
-  }
-  const renderPage = () => {
-    switch (currentPage) {
-      case 'dashboard':
-        return <Dashboard onNavigate={setCurrentPage} />;
-      case 'new-nfe':
-        return <NewNFe onNavigate={setCurrentPage} />;
-      case 'nfe-list':
-        return <NFeList />;
-      case 'companies':
-        return <Companies />;
-      case 'company-settings':
-        return <CompanySettings />;
-      case 'system-settings':
-        return <SystemSettings />;
-      case 'users':
-        return <Users />;
-      case 'database-info':
-        return <DatabaseInfo />;
-      case 'clients':
-        return <Clients />;
-      case 'products':
-        return <Products />;
-      case 'carriers':
-        return <Carriers />;
-      default:
-        return <Dashboard onNavigate={setCurrentPage} />;
-    }
+  const [currentPage, setCurrentPage] = useState<Page>('dashboard');
+  const [showRegister, setShowRegister] = useState(false);
+  const handleNavigate = (page: Page) => {
+    setCurrentPage(page);
   };
-  return <div className="flex min-h-screen w-full bg-gray-50">
-      <Sidebar currentPage={currentPage} onNavigate={setCurrentPage} />
-      <div className="flex-1 flex flex-col">
+  const handleRegisterSuccess = () => {
+    setShowRegister(false);
+    // User will need to login after registration
+  };
+  if (!user) {
+    if (showRegister) {
+      return <Register onBack={() => setShowRegister(false)} onSuccess={handleRegisterSuccess} />;
+    }
+    return <Login onRegisterClick={() => setShowRegister(true)} />;
+  }
+  return <div className="flex h-screen bg-gray-50">
+      <Sidebar currentPage={currentPage} onNavigate={handleNavigate} />
+      <div className="flex-1 flex flex-col overflow-hidden">
         <TopBar />
-        {renderPage()}
+        <main className="flex-1 overflow-y-auto">
+          {currentPage === 'dashboard' && <Dashboard onNavigate={handleNavigate} />}
+          {currentPage === 'clients' && <Clients />}
+          {currentPage === 'products' && <Products />}
+          {currentPage === 'carriers' && <Carriers />}
+          {currentPage === 'new-nfe' && <NewNFe onNavigate={handleNavigate} />}
+          {currentPage === 'nfe-list' && <NFeList onNavigate={handleNavigate} />}
+          {currentPage === 'users' && <Users />}
+          {currentPage === 'companies' && <Companies />}
+          {currentPage === 'system-settings' && <SystemSettings />}
+          {currentPage === 'database-info' && <DatabaseInfo />}
+          {currentPage === 'subscription' && <Subscription />}
+          {currentPage === 'billing' && <Billing />}
+        </main>
       </div>
     </div>;
 }
 export function App() {
   return <AuthProvider>
       <CompanyProvider>
+        <Toaster position="top-right" richColors />
         <AppContent />
       </CompanyProvider>
     </AuthProvider>;

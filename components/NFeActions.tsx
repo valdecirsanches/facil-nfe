@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { toast, Toaster } from 'sonner';
 import { Card } from './ui/Card';
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
@@ -26,7 +27,7 @@ export function NFeActions({
   const [sent, setSent] = useState(false);
   const handleSendEmail = async () => {
     if (!email) {
-      alert('Digite um e-mail válido');
+      toast.warning('Digite um e-mail válido');
       return;
     }
     setSending(true);
@@ -38,7 +39,7 @@ export function NFeActions({
         setSent(false);
       }, 2000);
     } catch (error) {
-      alert('Erro ao enviar e-mail');
+      toast.error('Erro ao enviar e-mail');
     } finally {
       setSending(false);
     }

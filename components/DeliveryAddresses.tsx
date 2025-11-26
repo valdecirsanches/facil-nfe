@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { toast, Toaster } from 'sonner';
 import { Card } from './ui/Card';
 import { Input } from './ui/Input';
 import { Button } from './ui/Button';
@@ -124,7 +125,7 @@ export function DeliveryAddresses({
       handleCancel();
     } catch (error) {
       console.error('Error saving address:', error);
-      alert('Erro ao salvar endereço de entrega');
+      toast.error('Erro ao salvar endereço de entrega');
     }
   };
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {

@@ -1,4 +1,5 @@
 import React, { useEffect, useState, createElement } from 'react';
+import { toast, Toaster } from 'sonner';
 import { Header } from '../components/Header';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -50,7 +51,7 @@ export function DatabaseInfo() {
       URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Error exporting data:', error);
-      alert('Erro ao exportar dados');
+      toast.error('Erro ao exportar dados');
     }
   };
   if (!isSuperUser) {

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { toast, Toaster } from 'sonner';
 import { Header } from '../components/Header';
 import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
@@ -101,7 +102,7 @@ export function Carriers() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeCompanyId) {
-      alert('Selecione uma empresa ativa primeiro');
+      toast.warning('Selecione uma empresa ativa primeiro');
       return;
     }
     try {
@@ -117,7 +118,7 @@ export function Carriers() {
       handleCancel();
     } catch (error) {
       console.error('Error saving carrier:', error);
-      alert('Erro ao salvar transportadora');
+      toast.error('Erro ao salvar transportadora');
     }
   };
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {

@@ -1,0 +1,11 @@
+{
+  "applied": [
+    "migration_002_add_ncm_cfop_to_produtos",
+    "migration_003_add_transportadora_to_clientes",
+    "migration_004_add_aliquota_icms_to_produtos",
+    "migration_005_create_enderecos_entrega",
+    "migration_006_add_veiculo_to_transportadora",
+    "migration_008_add_transportadora_to_enderecos",
+    "migration_009_add_ie_to_enderecos"
+  ]
+}

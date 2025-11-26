@@ -2,15 +2,17 @@ import React from 'react';
 interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> {
   label?: string;
   error?: string;
-  options: {
+  options?: {
     value: string;
     label: string;
   }[];
+  children?: React.ReactNode;
 }
 export function Select({
   label,
   error,
   options,
+  children,
   className = '',
   ...props
 }: SelectProps) {
@@ -19,9 +21,9 @@ export function Select({
           {label}
         </label>}
       <select className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent ${error ? 'border-red-500' : 'border-gray-300'} ${className}`} {...props}>
-        {options.map(option => <option key={option.value} value={option.value}>
-            {option.label}
-          </option>)}
+        {options ? options.map(option => <option key={option.value} value={option.value}>
+                {option.label}
+              </option>) : children}
       </select>
       {error && <p className="mt-1 text-sm text-red-600">{error}</p>}
     </div>;

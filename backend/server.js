@@ -6,6 +6,7 @@ const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const axios = require('axios');
 const MigrationSystem = require('./migrations');
 const nfeService = require('./nfe_service');
 require('dotenv').config();
@@ -110,9 +111,12 @@ mainDb.exec(`
     nome_fantasia TEXT,
     cnpj TEXT UNIQUE NOT NULL,
     ie TEXT,
+    im TEXT,
+    cnae TEXT,
     crt TEXT DEFAULT '1',
     endereco TEXT,
     numero TEXT,
+    complemento TEXT,
     bairro TEXT,
     cidade TEXT,
     estado TEXT,
@@ -253,38 +257,56 @@ function authenticateToken(req, res, next) {
 // ===== ROTAS DE AUTENTICAÇÃO =====
 app.post('/api/auth/login', (req, res) => {
   try {
-    const {
-      email,
-      senha
-    } = req.body;
+    const { email, senha } = req.body;
+    
+    // Buscar usuário
     const user = mainDb.prepare('SELECT * FROM usuarios WHERE email = ?').get(email);
-    if (!user || !bcrypt.compareSync(senha, user.senha)) {
-      return res.status(401).json({
-        error: 'Credenciais inválidas'
-      });
+    
+    if (!user) {
+      return res.status(401).json({ error: 'Credenciais inválidas' });
     }
+
+    // Verificar se usuário está ativo
+    if (user.ativo === 0) {
+      return res.status(403).json({ error: 'Usuário inativo. Entre em contato com o administrador.' });
+    }
+
+    // Verificar senha
+    if (!bcrypt.compareSync(senha, user.senha)) {
+      return res.status(401).json({ error: 'Credenciais inválidas' });
+    }
+
+    // Verificar se empresa está ativa (se não for super usuário)
+    if (user.empresa_id) {
+      const empresa = mainDb.prepare('SELECT ativo FROM empresas WHERE id = ?').get(user.empresa_id);
+      if (empresa && empresa.ativo === 0) {
+        return res.status(403).json({ error: 'Empresa inativa. Entre em contato com o suporte.' });
+      }
+    }
+
+    // Garantir que tipo está definido
     const userTipo = user.tipo || (user.empresa_id === null ? 'super' : 'usuario');
-    const token = jwt.sign({
-      id: user.id,
-      email: user.email,
-      empresa_id: user.empresa_id,
-      tipo: userTipo
-    }, JWT_SECRET, {
-      expiresIn: '24h'
-    });
-    const {
-      senha: _,
-      ...userWithoutPassword
-    } = user;
+
+    // Atualizar tipo se estiver vazio
+    if (!user.tipo) {
+      mainDb.prepare('UPDATE usuarios SET tipo = ? WHERE id = ?').run(userTipo, user.id);
+    }
+
+    const token = jwt.sign(
+      { id: user.id, email: user.email, empresa_id: user.empresa_id, tipo: userTipo },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+
+    const { senha: _, ...userWithoutPassword } = user;
     userWithoutPassword.tipo = userTipo;
-    res.json({
-      token,
-      user: userWithoutPassword
-    });
+    
+    console.log(`✅ Login bem-sucedido: ${user.email} (${userTipo})`);
+    
+    res.json({ token, user: userWithoutPassword });
   } catch (error) {
-    res.status(500).json({
-      error: error.message
-    });
+    console.error('❌ Erro no login:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -613,14 +635,92 @@ app.get('/api/empresas/:id', authenticateToken, (req, res) => {
     });
   }
 });
-app.post('/api/empresas', authenticateToken, (req, res) => {
+
+// ===== NOVA ROTA: BUSCAR DADOS DE CNPJ (PROXY PARA RECEITAWS) =====
+app.get('/api/cnpj/:cnpj/dados', async (req, res) => {
+  try {
+    const cnpj = req.params.cnpj.replace(/\D/g, '');
+    if (cnpj.length !== 14) {
+      return res.status(400).json({
+        error: 'CNPJ deve ter 14 dígitos'
+      });
+    }
+    console.log(`🔍 Buscando dados do CNPJ: ${cnpj}`);
+
+    // Fetch from ReceitaWS API using axios
+    const response = await axios.get(`https://www.receitaws.com.br/v1/cnpj/${cnpj}`, {
+      timeout: 10000,
+      headers: {
+        'User-Agent': 'NFe System/1.0'
+      }
+    });
+    const data = response.data;
+    if (data.status === 'ERROR') {
+      console.log(`❌ ReceitaWS retornou erro: ${data.message}`);
+      return res.status(404).json({
+        error: data.message || 'CNPJ não encontrado'
+      });
+    }
+    console.log(`✅ Dados encontrados para: ${data.nome}`);
+    res.json(data);
+  } catch (error) {
+    console.error('❌ Erro ao buscar CNPJ:', error.message);
+    if (error.response?.status === 429) {
+      return res.status(429).json({
+        error: 'Limite de requisições atingido. Tente novamente em alguns minutos.'
+      });
+    }
+    if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
+      return res.status(504).json({
+        error: 'Tempo esgotado ao buscar dados. Tente novamente.'
+      });
+    }
+    res.status(500).json({
+      error: 'Erro ao buscar dados do CNPJ. Preencha manualmente.',
+      details: error.message
+    });
+  }
+});
+
+// ===== NOVA ROTA: BUSCAR EMPRESA POR CNPJ (SEM AUTENTICAÇÃO) =====
+app.get('/api/empresas/cnpj/:cnpj', (req, res) => {
+  try {
+    const cnpj = req.params.cnpj.replace(/\D/g, '');
+    const empresa = mainDb.prepare('SELECT * FROM empresas WHERE cnpj = ?').get(cnpj);
+    if (!empresa) {
+      return res.status(404).json({
+        error: 'Empresa não encontrada'
+      });
+    }
+    res.json(empresa);
+  } catch (error) {
+    res.status(500).json({
+      error: error.message
+    });
+  }
+});
+
+// ===== NOVA ROTA: BUSCAR USUÁRIOS DE UMA EMPRESA (SEM AUTENTICAÇÃO) =====
+app.get('/api/empresas/:id/usuarios', (req, res) => {
+  try {
+    const usuarios = mainDb.prepare('SELECT id, nome, email, tipo, created_at FROM usuarios WHERE empresa_id = ?').all(req.params.id);
+    res.json(usuarios);
+  } catch (error) {
+    res.status(500).json({
+      error: error.message
+    });
+  }
+});
+app.post('/api/empresas', (req, res) => {
   try {
     // SANITIZAR CEP ANTES DE SALVAR
     const cepSanitizado = sanitizeCEP(req.body.cep);
     const result = mainDb.prepare(`
-      INSERT INTO empresas (razao_social, nome_fantasia, cnpj, ie, crt, endereco, numero, bairro, cidade, estado, cep, codigo_municipio, telefone, email)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(req.body.razao_social, req.body.nome_fantasia, req.body.cnpj, req.body.ie, req.body.crt || '1', req.body.endereco, req.body.numero, req.body.bairro, req.body.cidade, req.body.estado, cepSanitizado, req.body.codigo_municipio, req.body.telefone, req.body.email);
+      INSERT INTO empresas (razao_social, nome_fantasia, cnpj, ie, im, cnae, crt, endereco, numero, complemento, bairro, cidade, estado, cep, codigo_municipio, telefone, email)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(req.body.razao_social, req.body.nome_fantasia, req.body.cnpj, req.body.ie, req.body.im || null, req.body.cnae || null, req.body.crt || '1', req.body.endereco, req.body.numero, req.body.complemento || null, req.body.bairro, req.body.cidade, req.body.estado, cepSanitizado, req.body.codigo_municipio || null, req.body.telefone || null, req.body.email || null);
+
+    // Criar banco da empresa
     getCompanyDb(result.lastInsertRowid);
     res.json({
       id: result.lastInsertRowid
@@ -631,24 +731,165 @@ app.post('/api/empresas', authenticateToken, (req, res) => {
     });
   }
 });
-app.put('/api/empresas/:id', authenticateToken, (req, res) => {
+app.put('/api/empresas/:empresaId/plano', authenticateToken, (req, res) => {
   try {
-    // SANITIZAR CEP ANTES DE SALVAR
-    const cepSanitizado = sanitizeCEP(req.body.cep);
-    mainDb.prepare(`
-      UPDATE empresas 
-      SET razao_social = ?, nome_fantasia = ?, cnpj = ?, ie = ?, crt = ?, endereco = ?, numero = ?, bairro = ?, cidade = ?, estado = ?, cep = ?, codigo_municipio = ?, telefone = ?, email = ?
-      WHERE id = ?
-    `).run(req.body.razao_social, req.body.nome_fantasia, req.body.cnpj, req.body.ie, req.body.crt || '1', req.body.endereco, req.body.numero, req.body.bairro, req.body.cidade, req.body.estado, cepSanitizado, req.body.codigo_municipio, req.body.telefone, req.body.email, req.params.id);
-    res.json({
-      success: true
+    const { plano_id } = req.body;
+    
+    if (!plano_id) {
+      return res.status(400).json({ error: 'plano_id é obrigatório' });
+    }
+
+    // Verificar se plano existe
+    const novoPlano = mainDb.prepare('SELECT * FROM planos WHERE id = ?').get(plano_id);
+    if (!novoPlano) {
+      return res.status(404).json({ error: 'Plano não encontrado' });
+    }
+
+    // Buscar empresa e plano atual
+    const empresa = mainDb.prepare(`
+      SELECT e.*, p.preco_mensal as preco_atual, p.nome as plano_atual_nome
+      FROM empresas e
+      LEFT JOIN planos p ON e.plano_id = p.id
+      WHERE e.id = ?
+    `).get(req.params.empresaId);
+    
+    if (!empresa) {
+      return res.status(404).json({ error: 'Empresa não encontrada' });
+    }
+
+    // IMPEDIR DOWNGRADE
+    if (empresa.preco_atual && novoPlano.preco_mensal < empresa.preco_atual) {
+      return res.status(400).json({ 
+        error: 'Downgrade não permitido',
+        mensagem: `Não é possível fazer downgrade do plano ${empresa.plano_atual_nome} para ${novoPlano.nome}. Entre em contato com o suporte.`,
+        planoAtual: empresa.plano_atual_nome,
+        planoSolicitado: novoPlano.nome
+      });
+    }
+
+    const hoje = new Date();
+    const mesAtual = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}`;
+
+    // DELETAR faturas pendentes do mês atual antes de criar nova
+    const deletedCount = mainDb.prepare(`
+      DELETE FROM faturas 
+      WHERE empresa_id = ? 
+        AND mes_referencia = ? 
+        AND status = 'pendente'
+    `).run(req.params.empresaId, mesAtual);
+
+    if (deletedCount.changes > 0) {
+      console.log(`🗑️  ${deletedCount.changes} fatura(s) pendente(s) do mês atual deletada(s)`);
+    }
+
+    // Atualizar plano da empresa
+    mainDb.prepare('UPDATE empresas SET plano_id = ? WHERE id = ?')
+      .run(plano_id, req.params.empresaId);
+
+    console.log(`✅ Empresa ${req.params.empresaId} atualizada para plano ${novoPlano.nome}`);
+
+    // Gerar nova fatura se o plano não for gratuito
+    let fatura = null;
+    if (novoPlano.preco_mensal > 0) {
+      const dataVencimento = new Date();
+      dataVencimento.setDate(dataVencimento.getDate() + 10);
+      const dataVencimentoStr = dataVencimento.toISOString().split('T')[0];
+
+      const result = mainDb.prepare(`
+        INSERT INTO faturas (empresa_id, plano_id, valor, mes_referencia, data_vencimento, status)
+        VALUES (?, ?, ?, ?, ?, 'pendente')
+      `).run(req.params.empresaId, plano_id, novoPlano.preco_mensal, mesAtual, dataVencimentoStr);
+
+      fatura = {
+        id: result.lastInsertRowid,
+        valor: novoPlano.preco_mensal,
+        data_vencimento: dataVencimentoStr
+      };
+
+      console.log(`💰 Nova fatura #${fatura.id} gerada: R$ ${novoPlano.preco_mensal} - Vencimento: ${dataVencimentoStr}`);
+    }
+
+    res.json({ 
+      success: true, 
+      plano: novoPlano.nome,
+      fatura: fatura,
+      faturasDeletadas: deletedCount.changes
     });
   } catch (error) {
-    res.status(500).json({
-      error: error.message
-    });
+    console.error('❌ Erro ao atualizar plano:', error);
+    res.status(500).json({ error: error.message });
   }
 });
+
+app.delete('/api/empresas/:id', authenticateToken, (req, res) => {
+  try {
+    // Apenas super usuário pode excluir
+    if (req.user.tipo !== 'super') {
+      return res.status(403).json({ error: 'Apenas super usuários podem excluir empresas' });
+    }
+
+    const empresaId = req.params.id;
+    
+    // Buscar empresa
+    const empresa = mainDb.prepare('SELECT * FROM empresas WHERE id = ?').get(empresaId);
+    if (!empresa) {
+      return res.status(404).json({ error: 'Empresa não encontrada' });
+    }
+
+    console.log(`🗑️  Iniciando exclusão da empresa ${empresaId}: ${empresa.razao_social}`);
+
+    // 1. Deletar usuários da empresa
+    const usuariosDeletados = mainDb.prepare('DELETE FROM usuarios WHERE empresa_id = ?').run(empresaId);
+    console.log(`   ✅ ${usuariosDeletados.changes} usuário(s) deletado(s)`);
+
+    // 2. Deletar faturas da empresa
+    const faturasDeletadas = mainDb.prepare('DELETE FROM faturas WHERE empresa_id = ?').run(empresaId);
+    console.log(`   ✅ ${faturasDeletadas.changes} fatura(s) deletada(s)`);
+
+    // 3. Deletar banco de dados da empresa
+    const fs = require('fs');
+    const dbPath = `./empresa_${empresaId}.db`;
+    if (fs.existsSync(dbPath)) {
+      fs.unlinkSync(dbPath);
+      console.log(`   ✅ Banco de dados deletado: ${dbPath}`);
+    }
+
+    // 4. Deletar pasta de arquivos da empresa
+    const arqsPath = `./Arqs/empresa_${empresaId}`;
+    if (fs.existsSync(arqsPath)) {
+      fs.rmSync(arqsPath, { recursive: true, force: true });
+      console.log(`   ✅ Pasta de arquivos deletada: ${arqsPath}`);
+    }
+
+    // 5. Remover do cache
+    if (companyDbCache.has(empresaId)) {
+      companyDbCache.get(empresaId).close();
+      companyDbCache.delete(empresaId);
+      console.log(`   ✅ Cache removido`);
+    }
+
+    // 6. Deletar empresa
+    mainDb.prepare('DELETE FROM empresas WHERE id = ?').run(empresaId);
+    console.log(`   ✅ Empresa deletada do banco principal`);
+
+    console.log(`✅ Empresa ${empresa.razao_social} excluída completamente`);
+
+    res.json({ 
+      success: true, 
+      message: 'Empresa excluída com sucesso',
+      empresa: empresa.razao_social,
+      deletados: {
+        usuarios: usuariosDeletados.changes,
+        faturas: faturasDeletadas.changes
+      }
+    });
+  } catch (error) {
+    console.error('❌ Erro ao excluir empresa:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+
 
 // ===== ROTAS DE USUÁRIOS =====
 app.get('/api/usuarios', authenticateToken, (req, res) => {
@@ -665,21 +906,28 @@ app.get('/api/usuarios', authenticateToken, (req, res) => {
     });
   }
 });
-app.post('/api/usuarios', authenticateToken, (req, res) => {
+app.post('/api/usuarios', (req, res) => {
   try {
     const hashedPassword = bcrypt.hashSync(req.body.senha, 10);
     const tipo = req.body.tipo || 'usuario';
+    const ativo = req.body.ativo !== undefined ? req.body.ativo : 1;
     const result = mainDb.prepare(`
-      INSERT INTO usuarios (nome, email, senha, empresa_id, tipo)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(req.body.nome, req.body.email, hashedPassword, req.body.empresa_id, tipo);
+      INSERT INTO usuarios (nome, email, senha, empresa_id, tipo, ativo)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(req.body.nome, req.body.email, hashedPassword, req.body.empresa_id, tipo, ativo);
     res.json({
       id: result.lastInsertRowid
     });
   } catch (error) {
-    res.status(500).json({
-      error: error.message
-    });
+    if (error.message.includes('UNIQUE constraint failed')) {
+      res.status(400).json({
+        error: 'Este e-mail já está cadastrado'
+      });
+    } else {
+      res.status(500).json({
+        error: error.message
+      });
+    }
   }
 });
 app.put('/api/usuarios/:id', authenticateToken, (req, res) => {
@@ -1129,18 +1377,27 @@ app.delete('/api/empresas/:empresaId/nfes/:id', authenticateToken, (req, res) =>
         error: 'NFe não encontrada'
       });
     }
-    if (nfe.status !== 'Processando') {
+
+    // Permitir exclusão de NFes com status "Processando" ou "Rejeitada"
+    if (nfe.status !== 'Processando' && nfe.status !== 'Rejeitada') {
       return res.status(400).json({
-        error: 'Apenas NFes com status "Processando" podem ser excluídas'
+        error: 'Apenas NFes com status "Processando" ou "Rejeitada" podem ser excluídas',
+        status: nfe.status
       });
     }
+
+    // Deletar itens primeiro (foreign key)
     db.prepare('DELETE FROM nfe_itens WHERE nfe_id = ?').run(req.params.id);
+
+    // Deletar NFe
     db.prepare('DELETE FROM nfes WHERE id = ?').run(req.params.id);
+    console.log(`🗑️  NFe #${nfe.numero} (${nfe.status}) excluída com sucesso`);
     res.json({
       success: true,
       message: 'NFe excluída com sucesso'
     });
   } catch (error) {
+    console.error('❌ Erro ao excluir NFe:', error);
     res.status(500).json({
       error: error.message
     });
@@ -1297,6 +1554,390 @@ app.put('/api/empresas/:empresaId/configuracoes', authenticateToken, (req, res) 
   } catch (error) {
     console.error('❌ Erro ao atualizar configurações:', error);
     console.error('Stack:', error.stack);
+    res.status(500).json({
+      error: error.message
+    });
+  }
+});
+
+// ===== ROTAS DE PLANOS =====
+app.get('/api/planos', (req, res) => {
+  try {
+    const planos = mainDb.prepare('SELECT * FROM planos WHERE ativo = 1 ORDER BY preco_mensal ASC').all();
+    res.json(planos);
+  } catch (error) {
+    res.status(500).json({
+      error: error.message
+    });
+  }
+});
+app.get('/api/planos/:id', (req, res) => {
+  try {
+    const plano = mainDb.prepare('SELECT * FROM planos WHERE id = ?').get(req.params.id);
+    if (!plano) {
+      return res.status(404).json({
+        error: 'Plano não encontrado'
+      });
+    }
+    res.json(plano);
+  } catch (error) {
+    res.status(500).json({
+      error: error.message
+    });
+  }
+});
+
+// ===== ROTA: ATUALIZAR PLANO DA EMPRESA =====
+app.put('/api/empresas/:empresaId/plano', authenticateToken, (req, res) => {
+  try {
+    const {
+      plano_id
+    } = req.body;
+    if (!plano_id) {
+      return res.status(400).json({
+        error: 'plano_id é obrigatório'
+      });
+    }
+
+    // Verificar se plano existe
+    const plano = mainDb.prepare('SELECT * FROM planos WHERE id = ?').get(plano_id);
+    if (!plano) {
+      return res.status(404).json({
+        error: 'Plano não encontrado'
+      });
+    }
+
+    // Buscar empresa
+    const empresa = mainDb.prepare('SELECT * FROM empresas WHERE id = ?').get(req.params.empresaId);
+    if (!empresa) {
+      return res.status(404).json({
+        error: 'Empresa não encontrada'
+      });
+    }
+    const hoje = new Date();
+    const mesAtual = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}`;
+
+    // DELETAR faturas pendentes do mês atual antes de criar nova
+    const deletedCount = mainDb.prepare(`
+      DELETE FROM faturas 
+      WHERE empresa_id = ? 
+        AND mes_referencia = ? 
+        AND status = 'pendente'
+    `).run(req.params.empresaId, mesAtual);
+    if (deletedCount.changes > 0) {
+      console.log(`🗑️  ${deletedCount.changes} fatura(s) pendente(s) do mês atual deletada(s)`);
+    }
+
+    // Atualizar plano da empresa
+    mainDb.prepare('UPDATE empresas SET plano_id = ? WHERE id = ?').run(plano_id, req.params.empresaId);
+    console.log(`✅ Empresa ${req.params.empresaId} atualizada para plano ${plano.nome}`);
+
+    // Gerar nova fatura se o plano não for gratuito
+    let fatura = null;
+    if (plano.preco_mensal > 0) {
+      // Data de vencimento: 10 dias após a mudança
+      const dataVencimento = new Date();
+      dataVencimento.setDate(dataVencimento.getDate() + 10);
+      const dataVencimentoStr = dataVencimento.toISOString().split('T')[0];
+
+      // Criar fatura
+      const result = mainDb.prepare(`
+        INSERT INTO faturas (empresa_id, plano_id, valor, mes_referencia, data_vencimento, status)
+        VALUES (?, ?, ?, ?, ?, 'pendente')
+      `).run(req.params.empresaId, plano_id, plano.preco_mensal, mesAtual, dataVencimentoStr);
+      fatura = {
+        id: result.lastInsertRowid,
+        valor: plano.preco_mensal,
+        data_vencimento: dataVencimentoStr
+      };
+      console.log(`💰 Nova fatura #${fatura.id} gerada: R$ ${plano.preco_mensal} - Vencimento: ${dataVencimentoStr}`);
+    }
+    res.json({
+      success: true,
+      plano: plano.nome,
+      fatura: fatura,
+      faturasDeletadas: deletedCount.changes
+    });
+  } catch (error) {
+    console.error('❌ Erro ao atualizar plano:', error);
+    res.status(500).json({
+      error: error.message
+    });
+  }
+});
+
+// ===== CRIAR TABELA DE FATURAS =====
+mainDb.exec(`
+  CREATE TABLE IF NOT EXISTS faturas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    empresa_id INTEGER NOT NULL,
+    plano_id INTEGER NOT NULL,
+    valor REAL NOT NULL,
+    mes_referencia TEXT NOT NULL,
+    status TEXT DEFAULT 'pendente',
+    data_vencimento TEXT NOT NULL,
+    data_pagamento TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (empresa_id) REFERENCES empresas(id),
+    FOREIGN KEY (plano_id) REFERENCES planos(id)
+  );
+`);
+
+// ===== CRIAR TABELA DE CONFIGURAÇÕES GLOBAIS =====
+mainDb.exec(`
+  CREATE TABLE IF NOT EXISTS configuracoes_globais (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    pix_chave TEXT,
+    pix_tipo TEXT DEFAULT 'cnpj',
+    pix_nome_recebedor TEXT,
+    pix_cidade TEXT,
+    stripe_public_key TEXT,
+    stripe_secret_key TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+`);
+
+// Inserir configuração padrão se não existir
+const configGlobal = mainDb.prepare('SELECT * FROM configuracoes_globais WHERE id = 1').get();
+if (!configGlobal) {
+  mainDb.prepare(`
+    INSERT INTO configuracoes_globais (id, pix_nome_recebedor, pix_cidade)
+    VALUES (1, 'SISTEMA NFE LTDA', 'SAO PAULO')
+  `).run();
+  console.log('✅ Configurações globais criadas');
+}
+
+// ===== ROTA: OBTER CONFIGURAÇÕES GLOBAIS =====
+app.get('/api/configuracoes-globais', authenticateToken, (req, res) => {
+  try {
+    // Apenas super usuário pode ver
+    if (req.user.tipo !== 'super') {
+      return res.status(403).json({
+        error: 'Acesso negado'
+      });
+    }
+    const config = mainDb.prepare('SELECT * FROM configuracoes_globais WHERE id = 1').get();
+    res.json(config || {});
+  } catch (error) {
+    res.status(500).json({
+      error: error.message
+    });
+  }
+});
+
+// ===== ROTA: ATUALIZAR CONFIGURAÇÕES GLOBAIS =====
+app.put('/api/configuracoes-globais', authenticateToken, (req, res) => {
+  try {
+    // Apenas super usuário pode atualizar
+    if (req.user.tipo !== 'super') {
+      return res.status(403).json({
+        error: 'Acesso negado'
+      });
+    }
+    const {
+      pix_chave,
+      pix_tipo,
+      pix_nome_recebedor,
+      pix_cidade,
+      stripe_public_key,
+      stripe_secret_key
+    } = req.body;
+    mainDb.prepare(`
+      UPDATE configuracoes_globais 
+      SET pix_chave = ?, pix_tipo = ?, pix_nome_recebedor = ?, pix_cidade = ?,
+          stripe_public_key = ?, stripe_secret_key = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = 1
+    `).run(pix_chave, pix_tipo, pix_nome_recebedor, pix_cidade, stripe_public_key, stripe_secret_key);
+    res.json({
+      success: true
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error.message
+    });
+  }
+});
+
+// ===== ROTAS DE FATURAS =====
+app.get('/api/faturas', authenticateToken, (req, res) => {
+  try {
+    const {
+      empresa_id
+    } = req.query;
+    let query = `
+      SELECT f.*, e.razao_social as empresa_nome, p.nome as plano_nome
+      FROM faturas f
+      LEFT JOIN empresas e ON f.empresa_id = e.id
+      LEFT JOIN planos p ON f.plano_id = p.id
+    `;
+    const params = [];
+    if (empresa_id) {
+      query += ' WHERE f.empresa_id = ?';
+      params.push(empresa_id);
+    }
+    query += ' ORDER BY f.created_at DESC';
+    const faturas = mainDb.prepare(query).all(...params);
+    res.json(faturas);
+  } catch (error) {
+    res.status(500).json({
+      error: error.message
+    });
+  }
+});
+app.post('/api/faturas', authenticateToken, (req, res) => {
+  try {
+    const {
+      empresa_id,
+      plano_id,
+      valor,
+      mes_referencia,
+      data_vencimento
+    } = req.body;
+    const result = mainDb.prepare(`
+      INSERT INTO faturas (empresa_id, plano_id, valor, mes_referencia, data_vencimento)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(empresa_id, plano_id, valor, mes_referencia, data_vencimento);
+    res.json({
+      id: result.lastInsertRowid
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error.message
+    });
+  }
+});
+app.put('/api/faturas/:id/pagar', authenticateToken, (req, res) => {
+  try {
+    mainDb.prepare(`
+      UPDATE faturas 
+      SET status = 'pago', data_pagamento = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(req.params.id);
+    res.json({
+      success: true
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error.message
+    });
+  }
+});
+
+// ===== ROTA: GERAR PIX PARA FATURA (MELHORADA) =====
+app.post('/api/faturas/:id/gerar-pix', authenticateToken, (req, res) => {
+  try {
+    const fatura = mainDb.prepare('SELECT * FROM faturas WHERE id = ?').get(req.params.id);
+    if (!fatura) {
+      return res.status(404).json({
+        error: 'Fatura não encontrada'
+      });
+    }
+    if (fatura.status === 'pago') {
+      return res.status(400).json({
+        error: 'Fatura já está paga'
+      });
+    }
+
+    // Buscar configurações PIX
+    const config = mainDb.prepare('SELECT * FROM configuracoes_globais WHERE id = 1').get();
+    if (!config || !config.pix_chave) {
+      return res.status(400).json({
+        error: 'Chave PIX não configurada. Entre em contato com o administrador.'
+      });
+    }
+
+    // Gerar código PIX EMV (formato padrão brasileiro)
+    const pixPayload = {
+      pixKey: config.pix_chave,
+      description: `Fatura ${fatura.mes_referencia}`,
+      merchantName: config.pix_nome_recebedor || 'SISTEMA NFE',
+      merchantCity: config.pix_cidade || 'SAO PAULO',
+      amount: fatura.valor.toFixed(2),
+      txid: `FAT${fatura.id}${Date.now()}`
+    };
+
+    // Gerar código PIX (simplificado - em produção usar biblioteca oficial)
+    const pixCode = generatePixCode(pixPayload);
+
+    // Salvar código PIX na fatura
+    mainDb.prepare(`
+      UPDATE faturas 
+      SET pix_code = ?, pix_gerado_em = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(pixCode, req.params.id);
+    console.log(`💳 PIX gerado para fatura #${req.params.id}`);
+    res.json({
+      success: true,
+      pixCode: pixCode,
+      pixKey: config.pix_chave,
+      pixTipo: config.pix_tipo,
+      valor: fatura.valor,
+      vencimento: fatura.data_vencimento,
+      beneficiario: config.pix_nome_recebedor
+    });
+  } catch (error) {
+    console.error('❌ Erro ao gerar PIX:', error);
+    res.status(500).json({
+      error: error.message
+    });
+  }
+});
+
+// Função auxiliar para gerar código PIX EMV
+function generatePixCode(payload) {
+  // Simplificado - em produção usar biblioteca oficial como 'pix-utils'
+  const {
+    pixKey,
+    description,
+    merchantName,
+    merchantCity,
+    amount,
+    txid
+  } = payload;
+
+  // Formato EMV básico
+  const pixKeyField = `0014br.gov.bcb.pix01${pixKey.length.toString().padStart(2, '0')}${pixKey}`;
+  const descField = description ? `02${description.length.toString().padStart(2, '0')}${description}` : '';
+  return `00020126${pixKeyField.length.toString().padStart(2, '0')}${pixKeyField}${descField}52040000530398654${amount.length.toString().padStart(2, '0')}${amount}5802BR59${merchantName.length.toString().padStart(2, '0')}${merchantName}60${merchantCity.length.toString().padStart(2, '0')}${merchantCity}62${(txid.length + 4).toString().padStart(2, '0')}05${txid.length.toString().padStart(2, '0')}${txid}6304`;
+}
+
+// ===== ROTA: VERIFICAR LIMITES DO PLANO =====
+app.get('/api/empresas/:empresaId/limites', authenticateToken, (req, res) => {
+  try {
+    const empresa = mainDb.prepare(`
+      SELECT e.*, p.nome as plano_nome, p.limite_nfes, p.limite_produtos, p.limite_faturamento
+      FROM empresas e
+      LEFT JOIN planos p ON e.plano_id = p.id
+      WHERE e.id = ?
+    `).get(req.params.empresaId);
+    if (!empresa) {
+      return res.status(404).json({
+        error: 'Empresa não encontrada'
+      });
+    }
+
+    // Buscar uso atual
+    const db = getCompanyDb(req.params.empresaId);
+    const nfesEmitidas = db.prepare('SELECT COUNT(*) as count FROM nfes WHERE strftime("%Y-%m", data_emissao) = strftime("%Y-%m", "now")').get();
+    const produtosCadastrados = db.prepare('SELECT COUNT(*) as count FROM produtos').get();
+    res.json({
+      plano: {
+        nome: empresa.plano_nome,
+        limite_nfes: empresa.limite_nfes,
+        limite_produtos: empresa.limite_produtos,
+        limite_faturamento: empresa.limite_faturamento
+      },
+      uso: {
+        nfes_mes: nfesEmitidas.count,
+        produtos: produtosCadastrados.count
+      },
+      disponivel: {
+        nfes: empresa.limite_nfes === -1 ? -1 : empresa.limite_nfes - nfesEmitidas.count,
+        produtos: empresa.limite_produtos === -1 ? -1 : empresa.limite_produtos - produtosCadastrados.count
+      }
+    });
+  } catch (error) {
     res.status(500).json({
       error: error.message
     });

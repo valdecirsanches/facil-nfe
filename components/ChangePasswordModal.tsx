@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { toast, Toaster } from 'sonner';
 import { Card } from './ui/Card';
 import { Input } from './ui/Input';
 import { Button } from './ui/Button';
@@ -52,7 +53,7 @@ export function ChangePasswordModal({
         ...user!,
         senha: formData.newPassword
       });
-      alert('Senha alterada com sucesso!');
+      toast.info('Senha alterada com sucesso!');
       onClose();
     } catch (err) {
       console.error('Error changing password:', err);

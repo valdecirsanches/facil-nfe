@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { toast, Toaster } from 'sonner';
 import { Header } from '../components/Header';
 import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
@@ -199,7 +200,7 @@ export function Products() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeCompanyId) {
-      alert('Selecione uma empresa ativa primeiro');
+      toast.warning('Selecione uma empresa ativa primeiro');
       return;
     }
     try {
@@ -222,7 +223,7 @@ export function Products() {
       handleCancel();
     } catch (error) {
       console.error('Error saving product:', error);
-      alert('Erro ao salvar produto. Verifique se o código já não está cadastrado.');
+      toast.error('Erro ao salvar produto. Verifique se o código já não está cadastrado.');
     }
   };
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {

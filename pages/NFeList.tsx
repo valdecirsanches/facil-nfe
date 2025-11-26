@@ -9,6 +9,7 @@ import { DownloadIcon, EyeIcon, XCircleIcon, PrinterIcon, TrashIcon, SendIcon, R
 import { db } from '../utils/database';
 import { useCompany } from '../context/CompanyContext';
 import { DANFEPreview } from '../components/DANFEPreview';
+import { toast, Toaster } from 'sonner';
 export function NFeList() {
   const {
     activeCompanyId
@@ -43,11 +44,11 @@ export function NFeList() {
     setAborting(nfeId);
     try {
       await db.abortarNFe(activeCompanyId, nfeId);
-      alert('Processamento abortado! NFe marcada como Rejeitada.');
+      toast.error('Processamento abortado! NFe marcada como Rejeitada.');
       loadNFes();
     } catch (error) {
       console.error('Error aborting NFe:', error);
-      alert('Erro ao abortar processamento.');
+      toast.error('Erro ao abortar processamento.');
     } finally {
       setAborting(null);
     }
@@ -56,7 +57,7 @@ export function NFeList() {
     if (!activeCompanyId) return;
     // Permitir exclusão de NFes Processando ou Rejeitadas
     if (status !== 'Processando' && status !== 'Rejeitada') {
-      alert('Apenas NFes com status "Processando" ou "Rejeitada" podem ser excluídas.');
+      toast.error('Apenas NFes com status "Processando" ou "Rejeitada" podem ser excluídas.');
       return;
     }
     if (!confirm(`Tem certeza que deseja excluir a NFe #${nfeNumero}? Esta ação não pode ser desfeita.`)) {
@@ -64,11 +65,11 @@ export function NFeList() {
     }
     try {
       await db.deleteNFe(activeCompanyId, nfeId);
-      alert('NFe excluída com sucesso!');
+      toast.error('NFe excluída com sucesso!');
       loadNFes();
     } catch (error) {
       console.error('Error deleting NFe:', error);
-      alert('Erro ao excluir NFe.');
+      toast.error('Erro ao excluir NFe.');
     }
   };
   const handleResendNFe = async (nfeId: number) => {
@@ -80,14 +81,14 @@ export function NFeList() {
     try {
       const result = await db.transmitirNFe(activeCompanyId, nfeId);
       if (result.success) {
-        alert(`✅ NFe reenviada com sucesso!\n\nStatus: ${result.status}\nMensagem: ${result.mensagem}`);
+        toast.success(`NFe reenviada com sucesso! Status: ${result.status}`);
       } else {
-        alert(`❌ Erro ao reenviar NFe:\n\n${result.mensagem || 'Erro desconhecido'}`);
+        toast.error(`Erro ao reenviar NFe: ${result.mensagem || 'Erro desconhecido'}`);
       }
       loadNFes();
     } catch (error: any) {
       console.error('Error resending NFe:', error);
-      alert(`❌ Erro ao reenviar NFe:\n\n${error.message || 'Erro desconhecido'}`);
+      toast.error(`Erro ao reenviar NFe: ${error.message || 'Erro desconhecido'}`);
     } finally {
       setResending(null);
     }

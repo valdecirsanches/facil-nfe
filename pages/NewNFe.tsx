@@ -541,13 +541,13 @@ export function NewNFe({
     addLog('processing', 'Baixando DANFE...', 'Preparando arquivo PDF');
     await new Promise(resolve => setTimeout(resolve, 500));
     addLog('success', 'DANFE baixada', `DANFE_${nfeNumber}.pdf`);
-    alert('Download da DANFE iniciado (simulado)');
+    toast.info('Download da DANFE iniciado (simulado)');
   };
   const handleDownloadXML = async () => {
     addLog('processing', 'Baixando XML...', 'Preparando arquivo fiscal');
     await new Promise(resolve => setTimeout(resolve, 500));
     addLog('success', 'XML baixado', `NFe${nfeNumber}.xml`);
-    alert('Download do XML iniciado (simulado)');
+    toast.info('Download do XML iniciado (simulado)');
   };
   const handleSendEmail = async (email: string, message: string) => {
     addLog('processing', 'Enviando e-mail...', `Destinatário: ${email}`);

@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react'
+import { toast, Toaster } from 'sonner';
 import { Header } from '../components/Header'
 import { Card } from '../components/ui/Card'
 import { Input } from '../components/ui/Input'
@@ -18,6 +19,7 @@ import {
 import { db } from '../utils/database'
 import { useCompany } from '../context/CompanyContext'
 import { useCEP } from '../hooks/useCEP'
+
 const ITEMS_PER_PAGE = 20
 export function Clients() {
   const { activeCompanyId } = useCompany()
@@ -175,11 +177,11 @@ export function Clients() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!activeCompanyId) {
-      alert('Selecione uma empresa ativa primeiro')
+      toast.warning('Selecione uma empresa ativa primeiro')
       return
     }
     if (!formData.codigo_municipio) {
-      alert(
+      toast.error(
         'Por favor, busque o CEP para preencher o código do município automaticamente.',
       )
       return
@@ -203,7 +205,7 @@ export function Clients() {
       handleCancel()
     } catch (error) {
       console.error('Error saving client:', error)
-      alert('Erro ao salvar cliente')
+      toast.error('Erro ao salvar cliente')
     }
   }
   const handleChange = (
