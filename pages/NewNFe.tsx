@@ -4,11 +4,15 @@ import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
 import { SearchableSelect } from '../components/ui/SearchableSelect';
+import { Dialog } from '../components/ui/Dialog';
 import { NFeTransmissionLog } from '../components/NFeTransmissionLog';
 import { NFeActions } from '../components/NFeActions';
+import { SefazErrorModal } from '../components/SefazErrorModal';
+import { toast, Toaster } from 'sonner';
 import { PlusIcon, TrashIcon, CheckCircleIcon, XIcon, ArrowLeftIcon, AlertTriangleIcon } from 'lucide-react';
 import { db } from '../utils/database';
 import { useCompany } from '../context/CompanyContext';
+import { DANFEPreview } from '../components/DANFEPreview';
 interface NewNFeProps {
   onNavigate: (page: string) => void;
 }
@@ -68,6 +72,11 @@ export function NewNFe({
   const [isTransmitting, setIsTransmitting] = useState(false);
   const [validationErrors, setValidationErrors] = useState<ValidationError[]>([]);
   const [showValidationErrors, setShowValidationErrors] = useState(false);
+  const [sefazError, setSefazError] = useState<any>(null);
+  const [showSefazError, setShowSefazError] = useState(false);
+  const [selectedNFEId, setSelectedNFEId] = useState<number | null>(null);
+  const [showPendingDialog, setShowPendingDialog] = useState(false);
+  const [pendingNfeNumber, setPendingNfeNumber] = useState('');
   useEffect(() => {
     if (activeCompanyId) {
       loadData();
@@ -395,12 +404,30 @@ export function NewNFe({
           setIsTransmitting(false);
           return true;
         } else {
+          // Erro na autorização - mostrar modal
           addLog('error', 'Erro na autorização', resultado.mensagem || 'Erro desconhecido');
+          // Preparar dados do erro para o modal
+          setSefazError({
+            cStat: resultado.cStat || '999',
+            xMotivo: resultado.mensagem || 'Erro desconhecido',
+            chave: resultado.chave,
+            protocolo: resultado.protocolo,
+            dhRecbto: resultado.dhRecbto,
+            detalhes: resultado.detalhes || resultado
+          });
+          setShowSefazError(true);
           setIsTransmitting(false);
           return false;
         }
       } catch (error) {
         addLog('error', 'Erro na transmissão', error instanceof Error ? error.message : 'Erro desconhecido');
+        // Mostrar modal de erro também para exceções
+        setSefazError({
+          cStat: '999',
+          xMotivo: error instanceof Error ? error.message : 'Erro desconhecido',
+          detalhes: error
+        });
+        setShowSefazError(true);
         addLog('processing', 'Salvando localmente...', 'NFe será salva em modo offline');
         setIsTransmitting(false);
         return false;
@@ -411,10 +438,59 @@ export function NewNFe({
       return false;
     }
   };
+  const handleSaveAsPending = async () => {
+    if (!activeCompanyId) {
+      toast.error('Selecione uma empresa ativa');
+      return;
+    }
+    // Validação prévia
+    const errors = validateNFe();
+    if (errors.length > 0) {
+      setValidationErrors(errors);
+      setShowValidationErrors(true);
+      return;
+    }
+    setIsSubmitting(true);
+    setShowValidationErrors(false);
+    const loadingToast = toast.loading('Salvando NFe...');
+    try {
+      const nfes = await db.getNFes(activeCompanyId);
+      const nextNumber = (nfes.length + 1).toString().padStart(6, '0');
+      const nfeData = {
+        numero: nextNumber,
+        serie: '1',
+        cliente_id: parseInt(selectedClientId),
+        natureza_operacao: naturezaOperacao,
+        cfop: selectedCfop.id.toString(),
+        valor_total: parseFloat(calculateTotal()),
+        status: 'Pendente'
+      };
+      const items = products.map(p => ({
+        produto_id: p.produto_id,
+        descricao: p.description,
+        quantidade: parseFloat(p.quantity),
+        valor_unitario: parseFloat(p.unitValue),
+        valor_total: parseFloat(p.total)
+      }));
+      await db.createNFe(activeCompanyId, nfeData, items);
+      toast.success('NFe salva como Pendente!', {
+        id: loadingToast
+      });
+      setPendingNfeNumber(nextNumber);
+      setShowPendingDialog(true);
+    } catch (error) {
+      console.error('Error saving NFe:', error);
+      toast.error('Erro ao salvar NFe', {
+        id: loadingToast
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeCompanyId) {
-      alert('Selecione uma empresa ativa');
+      toast.error('Selecione uma empresa ativa');
       return;
     }
     // Validação prévia
@@ -456,7 +532,7 @@ export function NewNFe({
       }
     } catch (error) {
       console.error('Error creating NFe:', error);
-      alert('Erro ao emitir NFe');
+      toast.error('Erro ao emitir NFe');
     } finally {
       setIsSubmitting(false);
     }
@@ -562,8 +638,26 @@ export function NewNFe({
   }));
   return <div className="flex-1 bg-gray-50">
       <Header title="Emitir Nova NFe" />
+      <Toaster position="top-right" richColors />
 
       <main className="p-8">
+        {/* Dialog de NFe Pendente */}
+        <Dialog isOpen={showPendingDialog} onClose={() => {
+        setShowPendingDialog(false);
+        handleNewNFe();
+      }} onConfirm={() => {
+        setShowPendingDialog(false);
+        onNavigate('nfe-list');
+      }} title="NFe Salva como Pendente" description={`NFe #${pendingNfeNumber} foi salva com sucesso! Você pode autorizá-la depois na lista de NFes.`} confirmText="Ver Lista de NFes" cancelText="Emitir Nova NFe" />
+
+        {/* Modal de Erro SEFAZ */}
+        {showSefazError && sefazError && <SefazErrorModal isOpen={showSefazError} onClose={() => setShowSefazError(false)} error={sefazError} onRetry={() => {
+        setShowSefazError(false);
+        if (nfeId) {
+          simulateTransmission(nfeId);
+        }
+      }} />}
+
         {showValidationErrors && validationErrors.length > 0 && <Card className="p-6 mb-6 border-red-200 bg-red-50">
             <div className="flex items-start gap-3 mb-4">
               <AlertTriangleIcon size={24} className="text-red-600 flex-shrink-0 mt-0.5" />
@@ -703,8 +797,11 @@ export function NewNFe({
             <Button type="button" variant="secondary" onClick={() => onNavigate('dashboard')}>
               Cancelar
             </Button>
+            <Button type="button" variant="secondary" onClick={handleSaveAsPending} disabled={isSubmitting}>
+              Salvar como Pendente
+            </Button>
             <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? 'Validando e Emitindo...' : 'Emitir NFe'}
+              {isSubmitting ? 'Validando e Emitindo...' : 'Emitir e Autorizar'}
             </Button>
           </div>
         </form>

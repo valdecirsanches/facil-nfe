@@ -261,6 +261,14 @@ class DatabaseService {
     });
   }
 
+  // NOVO: Abortar processamento de NFe
+  async abortarNFe(companyId: number, nfeId: number): Promise<void> {
+    await this.initialize();
+    await this.request(`/empresas/${companyId}/nfes/${nfeId}/abortar`, {
+      method: 'POST'
+    });
+  }
+
   // NOVO: Consultar status SEFAZ
   async consultarStatusSefaz(uf: string = 'SP'): Promise<any> {
     await this.initialize();

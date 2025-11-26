@@ -7,9 +7,10 @@ import { Select } from '../components/ui/Select';
 import { SefazStatusChecker } from '../components/SefazStatusChecker';
 import { PendingNFesManager } from '../components/PendingNFesManager';
 import { FileUpload } from '../components/FileUpload';
-import { SaveIcon, CheckCircleIcon, AlertTriangleIcon, RefreshCwIcon } from 'lucide-react';
+import { toast, Toaster } from 'sonner';
+import { SaveIcon, CheckCircleIcon, AlertTriangleIcon, RefreshCwIcon, EyeIcon, EyeOffIcon } from 'lucide-react';
 import { useCompany } from '../context/CompanyContext';
-const API_URL = 'http://localhost:3001/api';
+const API_URL = 'http://localhost:5300/api';
 interface Config {
   sefaz_ambiente: string;
   sefaz_uf: string;
@@ -44,6 +45,8 @@ export function SystemSettings() {
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [showCertPassword, setShowCertPassword] = useState(false);
+  const [showSmtpPassword, setShowSmtpPassword] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [showError, setShowError] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -92,17 +95,11 @@ export function SystemSettings() {
   };
   const handleSave = async () => {
     if (!activeCompanyId) {
-      console.error('❌ Nenhuma empresa selecionada!');
-      setErrorMessage('Nenhuma empresa selecionada');
-      setShowError(true);
+      toast.error('Nenhuma empresa selecionada');
       return;
     }
-    console.log('🚀 INICIANDO SALVAMENTO...');
-    console.log('📦 Empresa ID:', activeCompanyId);
-    console.log('📦 Config atual:', config);
     setSaving(true);
-    setShowSuccess(false);
-    setShowError(false);
+    const loadingToast = toast.loading('Salvando configurações...');
     try {
       const token = localStorage.getItem('token');
       if (!token) {
@@ -123,13 +120,6 @@ export function SystemSettings() {
         email_smtp_user: config.email_smtp_user,
         email_smtp_pass: config.email_smtp_pass
       };
-      console.log('📡 URL:', url);
-      console.log('📦 Payload:', {
-        ...payload,
-        certificado_senha: payload.certificado_senha ? '***' : '(vazio)',
-        email_smtp_pass: payload.email_smtp_pass ? '***' : '(vazio)'
-      });
-      console.log('🔄 Enviando requisição PUT...');
       const response = await fetch(url, {
         method: 'PUT',
         headers: {
@@ -138,50 +128,55 @@ export function SystemSettings() {
         },
         body: JSON.stringify(payload)
       });
-      console.log('📨 Response status:', response.status);
-      console.log('📨 Response ok:', response.ok);
       const result = await response.json();
-      console.log('📨 Response body:', result);
       if (!response.ok) {
         throw new Error(result.error || 'Erro ao salvar');
       }
-      console.log('✅ Salvo com sucesso!');
       await loadConfigs();
-      setShowSuccess(true);
-      setTimeout(() => setShowSuccess(false), 3000);
+      toast.success('Configurações salvas com sucesso!', {
+        id: loadingToast
+      });
     } catch (error) {
       console.error('❌ ERRO AO SALVAR:', error);
-      console.error('❌ Stack:', error instanceof Error ? error.stack : 'N/A');
-      setErrorMessage('Erro ao salvar configurações: ' + (error instanceof Error ? error.message : 'Erro desconhecido'));
-      setShowError(true);
+      toast.error('Erro ao salvar: ' + (error instanceof Error ? error.message : 'Erro desconhecido'), {
+        id: loadingToast
+      });
     } finally {
       setSaving(false);
-      console.log('🏁 Salvamento finalizado');
     }
   };
   const handleCertificadoUpload = async (file: File) => {
     if (!activeCompanyId) return;
-    const formData = new FormData();
-    formData.append('certificado', file);
-    const token = localStorage.getItem('token');
-    const response = await fetch(`${API_URL}/empresas/${activeCompanyId}/upload/certificado`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`
-      },
-      body: formData
-    });
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Erro ao fazer upload');
+    const loadingToast = toast.loading('Enviando certificado...');
+    try {
+      const formData = new FormData();
+      formData.append('certificado', file);
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_URL}/empresas/${activeCompanyId}/upload/certificado`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`
+        },
+        body: formData
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Erro ao fazer upload');
+      }
+      const result = await response.json();
+      setConfig(prev => ({
+        ...prev,
+        certificado_path: result.path
+      }));
+      toast.success('Certificado enviado com sucesso!', {
+        id: loadingToast
+      });
+      await loadConfigs();
+    } catch (error) {
+      toast.error('Erro ao enviar certificado: ' + (error instanceof Error ? error.message : 'Erro desconhecido'), {
+        id: loadingToast
+      });
     }
-    const result = await response.json();
-    console.log('✅ Certificado enviado:', result);
-    setConfig(prev => ({
-      ...prev,
-      certificado_path: result.path
-    }));
-    await loadConfigs();
   };
   const updateConfig = (field: keyof Config, value: string) => {
     console.log(`📝 Atualizando ${field}: "${value}"`);
@@ -213,52 +208,18 @@ export function SystemSettings() {
   }
   return <div className="flex-1 bg-gray-50">
       <Header title="Configurações do Sistema" />
-
+      <Toaster position="top-right" richColors />
       <main className="p-8 max-w-6xl mx-auto">
-        {showSuccess && <Card className="p-4 mb-6 bg-green-50 border-green-200">
-            <div className="flex items-center gap-3">
-              <CheckCircleIcon size={20} className="text-green-600" />
-              <p className="text-green-800 font-medium">
-                Configurações salvas com sucesso!
-              </p>
-            </div>
-          </Card>}
-
-        {showError && <Card className="p-4 mb-6 bg-red-50 border-red-200">
-            <div className="flex items-center gap-3">
-              <AlertTriangleIcon size={20} className="text-red-600" />
-              <p className="text-red-800 font-medium">{errorMessage}</p>
-            </div>
-          </Card>}
-
-        {/* Debug Info */}
-        <Card className="p-4 mb-6 bg-blue-50 border-blue-200">
-          <p className="text-xs font-mono text-blue-800 mb-2">
-            🐛 <strong>Debug Info (Empresa {activeCompanyId}):</strong>
-          </p>
-          <div className="text-xs font-mono text-blue-700 space-y-1">
-            <div>certificado_path = "{config.certificado_path}"</div>
-            <div>
-              certificado_senha ={' '}
-              {config.certificado_senha ? `"${config.certificado_senha.substring(0, 3)}***"` : '"(vazio)"'}
-            </div>
-            <div>email_smtp_host = "{config.email_smtp_host}"</div>
-            <div>sefaz_ambiente = "{config.sefaz_ambiente}"</div>
-          </div>
-        </Card>
-
         {/* Grid de 2 colunas para Status e NFes Pendentes */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
           <SefazStatusChecker uf={config.sefaz_uf} />
           <PendingNFesManager />
         </div>
-
         {/* Configurações SEFAZ */}
         <Card className="p-6 mb-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">
             Configurações SEFAZ
           </h3>
-
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Select label="Ambiente" value={config.sefaz_ambiente} onChange={e => updateConfig('sefaz_ambiente', e.target.value)} options={[{
             value: '1',
@@ -267,7 +228,6 @@ export function SystemSettings() {
             value: '2',
             label: 'Homologação'
           }]} />
-
             <Select label="UF da SEFAZ" value={config.sefaz_uf} onChange={e => updateConfig('sefaz_uf', e.target.value)} options={[{
             value: 'SP',
             label: 'São Paulo'
@@ -288,7 +248,6 @@ export function SystemSettings() {
             label: 'Santa Catarina'
           }]} />
           </div>
-
           <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
             <p className="text-sm text-blue-800">
               <strong>Atenção:</strong> Em ambiente de homologação, as NFes
@@ -296,13 +255,11 @@ export function SystemSettings() {
             </p>
           </div>
         </Card>
-
         {/* Certificado Digital */}
         <Card className="p-6 mb-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">
             Certificado Digital
           </h3>
-
           <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Select label="Tipo de Certificado" value={config.certificado_tipo} onChange={e => updateConfig('certificado_tipo', e.target.value)} options={[{
@@ -312,15 +269,14 @@ export function SystemSettings() {
               value: 'A3',
               label: 'A3 (token/smartcard)'
             }]} />
-
-              <Input label="Senha do Certificado" type="password" value={config.certificado_senha} onChange={e => updateConfig('certificado_senha', e.target.value)} placeholder="Digite a senha" />
+              <Input label="Senha do Certificado" type={showCertPassword ? 'text' : 'password'} value={config.certificado_senha} onChange={e => updateConfig('certificado_senha', e.target.value)} placeholder="Digite a senha" rightIcon={<button type="button" onClick={() => setShowCertPassword(!showCertPassword)} className="p-1 text-gray-400 hover:text-gray-600 transition-colors">
+                    {showCertPassword ? <EyeOffIcon size={18} /> : <EyeIcon size={18} />}
+                  </button>} />
             </div>
-
             <div className="pt-4 border-t border-gray-200">
               <FileUpload label="Arquivo do Certificado (.pfx ou .p12)" accept=".pfx,.p12,application/x-pkcs12" onUpload={handleCertificadoUpload} currentFile={config.certificado_path} description="Faça upload do seu certificado digital A1" maxSize={10} />
             </div>
           </div>
-
           <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
             <p className="text-sm text-yellow-800">
               <strong>Segurança:</strong> O certificado será salvo em
@@ -329,18 +285,14 @@ export function SystemSettings() {
             </p>
           </div>
         </Card>
-
         {/* Configurações de NFe */}
         <Card className="p-6 mb-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">
             Configurações de NFe
           </h3>
-
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Input label="Série Padrão" type="number" value={config.serie_nfe} onChange={e => updateConfig('serie_nfe', e.target.value)} placeholder="1" />
-
             <Input label="Próximo Número de NFe" type="number" value={config.proximo_numero} onChange={e => updateConfig('proximo_numero', e.target.value)} placeholder="1" />
-
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 CSOSN Padrão (Simples Nacional) *
@@ -361,24 +313,20 @@ export function SystemSettings() {
             </div>
           </div>
         </Card>
-
         {/* Configurações de E-mail */}
         <Card className="p-6 mb-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">
             Configurações de E-mail (SMTP)
           </h3>
-
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Input label="Servidor SMTP" value={config.email_smtp_host} onChange={e => updateConfig('email_smtp_host', e.target.value)} placeholder="smtp.gmail.com" />
-
             <Input label="Porta SMTP" type="number" value={config.email_smtp_port} onChange={e => updateConfig('email_smtp_port', e.target.value)} placeholder="587" />
-
             <Input label="Usuário SMTP" value={config.email_smtp_user} onChange={e => updateConfig('email_smtp_user', e.target.value)} placeholder="seu@email.com" />
-
-            <Input label="Senha SMTP" type="password" value={config.email_smtp_pass} onChange={e => updateConfig('email_smtp_pass', e.target.value)} placeholder="Digite a senha" />
+            <Input label="Senha SMTP" type={showSmtpPassword ? 'text' : 'password'} value={config.email_smtp_pass} onChange={e => updateConfig('email_smtp_pass', e.target.value)} placeholder="Digite a senha" rightIcon={<button type="button" onClick={() => setShowSmtpPassword(!showSmtpPassword)} className="p-1 text-gray-400 hover:text-gray-600 transition-colors">
+                  {showSmtpPassword ? <EyeOffIcon size={18} /> : <EyeIcon size={18} />}
+                </button>} />
           </div>
         </Card>
-
         {/* Botões */}
         <div className="flex justify-end gap-4">
           <Button onClick={loadConfigs} variant="secondary" disabled={loading}>

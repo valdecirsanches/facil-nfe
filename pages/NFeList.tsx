@@ -5,7 +5,7 @@ import { Input } from '../components/ui/Input';
 import { Select } from '../components/ui/Select';
 import { Button } from '../components/ui/Button';
 import { Table } from '../components/ui/Table';
-import { DownloadIcon, EyeIcon, XCircleIcon, PrinterIcon, TrashIcon, SendIcon, RefreshCwIcon } from 'lucide-react';
+import { DownloadIcon, EyeIcon, XCircleIcon, PrinterIcon, TrashIcon, SendIcon, RefreshCwIcon, XIcon } from 'lucide-react';
 import { db } from '../utils/database';
 import { useCompany } from '../context/CompanyContext';
 import { DANFEPreview } from '../components/DANFEPreview';
@@ -18,6 +18,7 @@ export function NFeList() {
   const [loading, setLoading] = useState(true);
   const [selectedNFeId, setSelectedNFeId] = useState<number | null>(null);
   const [resending, setResending] = useState<number | null>(null);
+  const [aborting, setAborting] = useState<number | null>(null);
   useEffect(() => {
     if (activeCompanyId) {
       loadNFes();
@@ -32,6 +33,23 @@ export function NFeList() {
       console.error('Error loading NFes:', error);
     } finally {
       setLoading(false);
+    }
+  };
+  const handleAbortNFe = async (nfeId: number, nfeNumero: string) => {
+    if (!activeCompanyId) return;
+    if (!confirm(`Tem certeza que deseja abortar o processamento da NFe #${nfeNumero}?\n\nIsso vai alterar o status para "Rejeitada" e você poderá corrigir e reenviar.`)) {
+      return;
+    }
+    setAborting(nfeId);
+    try {
+      await db.abortarNFe(activeCompanyId, nfeId);
+      alert('Processamento abortado! NFe marcada como Rejeitada.');
+      loadNFes();
+    } catch (error) {
+      console.error('Error aborting NFe:', error);
+      alert('Erro ao abortar processamento.');
+    } finally {
+      setAborting(null);
     }
   };
   const handleDeleteNFe = async (nfeId: number, nfeNumero: string, status: string) => {
@@ -55,14 +73,21 @@ export function NFeList() {
   };
   const handleResendNFe = async (nfeId: number) => {
     if (!activeCompanyId) return;
+    if (!confirm('Reenviar NFe?\n\nIsso vai gerar um novo XML com as correções mais recentes e tentar transmitir novamente para a SEFAZ.')) {
+      return;
+    }
     setResending(nfeId);
     try {
-      await db.transmitirNFe(activeCompanyId, nfeId);
-      alert('NFe reenviada com sucesso!');
+      const result = await db.transmitirNFe(activeCompanyId, nfeId);
+      if (result.success) {
+        alert(`✅ NFe reenviada com sucesso!\n\nStatus: ${result.status}\nMensagem: ${result.mensagem}`);
+      } else {
+        alert(`❌ Erro ao reenviar NFe:\n\n${result.mensagem || 'Erro desconhecido'}`);
+      }
       loadNFes();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error resending NFe:', error);
-      alert('Erro ao reenviar NFe.');
+      alert(`❌ Erro ao reenviar NFe:\n\n${error.message || 'Erro desconhecido'}`);
     } finally {
       setResending(null);
     }
@@ -155,10 +180,17 @@ export function NFeList() {
                           <XCircleIcon size={16} />
                         </button>
                       </>}
-                    {(nfe.status === 'Processando' || nfe.status === 'Rejeitada') && <button onClick={() => handleDeleteNFe(nfe.id, nfe.numero, nfe.status)} className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors" title={`Excluir NFe (${nfe.status})`}>
-                        <TrashIcon size={16} />
-                      </button>}
-                    {(nfe.status === 'Rejeitada' || nfe.status === 'Pendente' || nfe.status === 'Erro') && <button onClick={() => handleResendNFe(nfe.id)} disabled={resending === nfe.id} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-50" title="Reenviar NFe">
+
+                    {nfe.status === 'Processando' && <>
+                        <button onClick={() => handleAbortNFe(nfe.id, nfe.numero)} disabled={aborting === nfe.id} className="p-2 text-orange-600 hover:bg-orange-50 rounded-lg transition-colors disabled:opacity-50" title="Abortar Processamento">
+                          {aborting === nfe.id ? <RefreshCwIcon size={16} className="animate-spin" /> : <XIcon size={16} />}
+                        </button>
+                        <button onClick={() => handleDeleteNFe(nfe.id, nfe.numero, nfe.status)} className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Excluir NFe">
+                          <TrashIcon size={16} />
+                        </button>
+                      </>}
+
+                    {(nfe.status === 'Rejeitada' || nfe.status === 'Pendente' || nfe.status === 'Erro') && <button onClick={() => handleResendNFe(nfe.id)} disabled={resending === nfe.id} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-50" title={nfe.status === 'Pendente' ? 'Autorizar NFe' : 'Reenviar NFe (gera novo XML)'}>
                         {resending === nfe.id ? <RefreshCwIcon size={16} className="animate-spin" /> : <SendIcon size={16} />}
                       </button>}
                   </div>

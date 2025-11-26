@@ -479,7 +479,7 @@ app.listen(PORT, () => {
               {' '}
               // utils/database.ts - Versão API REST
             </p>
-            <pre className="text-gray-100 text-xs">{`const API_URL = 'http://localhost:3001/api';
+            <pre className="text-gray-100 text-xs">{`const API_URL = 'http://localhost:5300/api';
 
 class DatabaseService {
   private token: string | null = null;

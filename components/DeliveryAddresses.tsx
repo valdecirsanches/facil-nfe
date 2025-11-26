@@ -44,7 +44,7 @@ export function DeliveryAddresses({
   }, [clientId]);
   const loadData = async () => {
     try {
-      const [addressesData, transportadorasData] = await Promise.all([fetch(`http://localhost:3001/api/empresas/${companyId}/clientes/${clientId}/enderecos`, {
+      const [addressesData, transportadorasData] = await Promise.all([fetch(`http://localhost:5300/api/empresas/${companyId}/clientes/${clientId}/enderecos`, {
         headers: {
           Authorization: `Bearer ${db.getToken()}`
         }
@@ -106,7 +106,7 @@ export function DeliveryAddresses({
         transportadora_id: formData.transportadora_id ? parseInt(formData.transportadora_id) : null
       };
       console.log('Salvando endereço com dados:', dataToSend);
-      const url = editingId ? `http://localhost:3001/api/empresas/${companyId}/clientes/${clientId}/enderecos/${editingId}` : `http://localhost:3001/api/empresas/${companyId}/clientes/${clientId}/enderecos`;
+      const url = editingId ? `http://localhost:5300/api/empresas/${companyId}/clientes/${clientId}/enderecos/${editingId}` : `http://localhost:5300/api/empresas/${companyId}/clientes/${clientId}/enderecos`;
       const response = await fetch(url, {
         method: editingId ? 'PUT' : 'POST',
         headers: {

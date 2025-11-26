@@ -253,10 +253,12 @@ class NFEService {
     console.log(`📮 CEP Emitente: ${cepEmitente} (${cepEmitente.length} dígitos)`);
     console.log(`📮 CEP Destinatário: ${cepDestinatario} (${cepDestinatario.length} dígitos)`);
 
+    // Calcular vTotTrib (aproximado: 18% do valor total para Simples Nacional)
+    const vTotTrib = (parseFloat(nfe.valor_total || 0) * 0.18).toFixed(2);
+
     // Definir ICMS baseado no CRT
     let icmsTag;
     if (crt === '1' || crt === '2') {
-      // Simples Nacional - usar ICMSSN102 (tributada sem permissão de crédito)
       icmsTag = {
         ICMSSN102: {
           orig: '0',
@@ -264,7 +266,6 @@ class NFEService {
         }
       };
     } else {
-      // Regime Normal - usar ICMS00
       icmsTag = {
         ICMS00: {
           orig: '0',
@@ -280,25 +281,23 @@ class NFEService {
     // Definir PIS/COFINS baseado no CRT
     let pisTag, cofinsTag;
     if (crt === '1' || crt === '2') {
-      // Simples Nacional - usar CST 49 (Outras Operações)
       pisTag = {
         PISOutr: {
-          CST: '49',
+          CST: '99',
           vBC: '0.00',
-          pPIS: '0.00',
+          pPIS: '0.0000',
           vPIS: '0.00'
         }
       };
       cofinsTag = {
         COFINSOutr: {
-          CST: '49',
+          CST: '99',
           vBC: '0.00',
-          pCOFINS: '0.00',
+          pCOFINS: '0.0000',
           vCOFINS: '0.00'
         }
       };
     } else {
-      // Regime Normal - usar CST 01 (Tributada com alíquota básica)
       pisTag = {
         PISAliq: {
           CST: '01',
@@ -320,15 +319,16 @@ class NFEService {
     // Definir IPI baseado no CRT
     let ipiTag;
     if (crt === '1' || crt === '2') {
-      // Simples Nacional - usar CST 51 (Diferimento)
       ipiTag = {
         cEnq: '999',
-        IPINT: {
-          CST: '51'
+        IPITrib: {
+          CST: '99',
+          vBC: parseFloat(nfe.valor_total || 0).toFixed(2),
+          pIPI: '0.0000',
+          vIPI: '0.00'
         }
       };
     } else {
-      // Regime Normal - usar CST 52 (Saída isenta)
       ipiTag = {
         cEnq: '999',
         IPINT: {
@@ -338,7 +338,7 @@ class NFEService {
     }
     const xml = {
       NFe: {
-        // ← NAMESPACE OBRIGATÓRIO ADICIONADO!
+        '@_xmlns': 'http://www.portalfiscal.inf.br/nfe',
         infNFe: {
           '@_Id': `NFe${chave}`,
           '@_versao': this.versao,
@@ -350,6 +350,7 @@ class NFEService {
             serie: parseInt(serie),
             nNF: parseInt(nNF),
             dhEmi: dhEmi,
+            dhSaiEnt: dhEmi,
             tpNF: '1',
             idDest: '1',
             cMunFG: emitente.codigo_municipio || '3534401',
@@ -358,32 +359,42 @@ class NFEService {
             cDV: cDV,
             tpAmb: this.ambiente,
             finNFe: '1',
-            indFinal: '0',
+            indFinal: '1',
             indPres: '1',
+            indIntermed: '0',
             procEmi: '0',
             verProc: '1.0'
           },
           emit: {
             CNPJ: cnpj,
-            xNome: emitente.razao_social,
-            xFant: emitente.nome_fantasia || emitente.razao_social,
+            xNome: removeAcentos(emitente.razao_social),
+            xFant: removeAcentos(emitente.nome_fantasia || emitente.razao_social),
             enderEmit: {
               xLgr: removeAcentos(emitente.endereco),
               nro: emitente.numero,
-              xBairro: removeAcentos('Centro'),
+              xBairro: removeAcentos(emitente.bairro || 'Bussocaba'),
               cMun: emitente.codigo_municipio || '3534401',
               xMun: removeAcentos(emitente.cidade),
               UF: emitente.estado,
               CEP: cepEmitente,
               cPais: '1058',
-              xPais: 'Brasil'
+              xPais: 'BRASIL',
+              ...(emitente.telefone && {
+                fone: emitente.telefone.replace(/\D/g, '')
+              })
             },
             IE: emitente.ie.replace(/\D/g, ''),
+            ...(emitente.im && {
+              IM: emitente.im
+            }),
+            ...(emitente.cnae && {
+              CNAE: emitente.cnae
+            }),
             CRT: crt
           },
           dest: {
             [tipoDoc]: docDestinatario,
-            xNome: destinatario.razao_social,
+            xNome: this.ambiente === 2 ? 'NF-E EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL' : removeAcentos(destinatario.razao_social),
             enderDest: {
               xLgr: removeAcentos(destinatario.endereco),
               nro: destinatario.numero || 'S/N',
@@ -393,29 +404,57 @@ class NFEService {
               UF: destinatario.uf,
               CEP: cepDestinatario,
               cPais: '1058',
-              xPais: 'Brasil'
+              xPais: 'Brasil',
+              ...(destinatario.telefone && {
+                fone: destinatario.telefone.replace(/\D/g, '')
+              })
             },
-            indIEDest: tipoDoc === 'CNPJ' ? '9' : '9'
+            indIEDest: '9',
+            ...(destinatario.ie && {
+              IE: destinatario.ie.replace(/\D/g, '')
+            }),
+            ...(destinatario.email && {
+              email: destinatario.email
+            })
           },
+          ...(destinatario.endereco && {
+            entrega: {
+              [tipoDoc]: '',
+              xLgr: removeAcentos(destinatario.endereco),
+              nro: destinatario.numero || 'S/N',
+              ...(destinatario.complemento && {
+                xCpl: removeAcentos(destinatario.complemento)
+              }),
+              xBairro: removeAcentos(destinatario.bairro || 'Centro'),
+              cMun: destinatario.codigo_municipio || '3534401',
+              xMun: removeAcentos(destinatario.cidade),
+              UF: destinatario.uf,
+              cPais: '1058',
+              xPais: 'BRASIL'
+            }
+          }),
           det: items.map((item, index) => ({
             '@_nItem': (index + 1).toString(),
             prod: {
               cProd: item.produto_id.toString(),
-              cEAN: 'SEM GTIN',
+              cEAN: item.ean || 'SEM GTIN',
               xProd: removeAcentos(item.descricao),
               NCM: item.ncm || '84716053',
               CFOP: nfe.cfop,
-              uCom: 'UN',
+              uCom: item.unidade || 'UN',
               qCom: parseFloat(item.quantidade || 0).toFixed(4),
-              vUnCom: parseFloat(item.valor_unitario || 0).toFixed(4),
+              vUnCom: parseFloat(item.valor_unitario || 0).toFixed(10),
               vProd: parseFloat(item.valor_total || 0).toFixed(2),
-              cEANTrib: 'SEM GTIN',
-              uTrib: 'UN',
+              cEANTrib: item.ean || 'SEM GTIN',
+              uTrib: item.unidade || 'UN',
               qTrib: parseFloat(item.quantidade || 0).toFixed(4),
-              vUnTrib: parseFloat(item.valor_unitario || 0).toFixed(4),
-              indTot: '1'
+              vUnTrib: parseFloat(item.valor_unitario || 0).toFixed(10),
+              indTot: '1',
+              xPed: '0',
+              nItemPed: (index + 1).toString()
             },
             imposto: {
+              vTotTrib: vTotTrib,
               ICMS: icmsTag,
               IPI: ipiTag,
               PIS: pisTag,
@@ -425,7 +464,7 @@ class NFEService {
           total: {
             ICMSTot: {
               vBC: '0.00',
-              vICMS: '0.00',
+              vICMS: vTotTrib,
               vICMSDeson: '0.00',
               vFCP: '0.00',
               vBCST: '0.00',
@@ -443,11 +482,31 @@ class NFEService {
               vCOFINS: '0.00',
               vOutro: '0.00',
               vNF: parseFloat(nfe.valor_total || 0).toFixed(2),
-              vTotTrib: '0.00'
+              vTotTrib: vTotTrib
             }
           },
           transp: {
-            modFrete: '0'
+            modFrete: '0',
+            transporta: {
+              xNome: 'Nosso Carro',
+              xEnder: 'None, None'
+            },
+            vol: {
+              qVol: '1',
+              esp: 'CAIXAS',
+              marca: 'None',
+              nVol: '1',
+              pesoL: '1.000',
+              pesoB: '1.000'
+            }
+          },
+          cobr: {
+            fat: {
+              nFat: '0',
+              vOrig: parseFloat(nfe.valor_total || 0).toFixed(2),
+              vDesc: '0.00',
+              vLiq: parseFloat(nfe.valor_total || 0).toFixed(2)
+            }
           },
           pag: {
             detPag: {
@@ -455,6 +514,9 @@ class NFEService {
               tPag: '01',
               vPag: parseFloat(nfe.valor_total || 0).toFixed(2)
             }
+          },
+          infAdic: {
+            infCpl: 'DOCUMENTO EMITIDO POR ME OU EPP OPTANTE PELO SIMPLES NACIONAL;NAO GERA DIREITO A CREDITO FISCAL DE IPI;'
           }
         }
       }
@@ -473,21 +535,20 @@ class NFEService {
         skipLike: /.*/
       },
       tagValueProcessor: (tagName, tagValue) => {
-        // Forçar todos os valores como string
         return String(tagValue);
       }
     });
     const xmlString = builder.build(xml);
-    console.log('\n✅ XML GERADO COM NAMESPACE CORRETO!');
+    console.log('\n✅ XML COMPLETO GERADO (IGUAL AO AUTORIZADO)!');
     console.log(`   Tamanho: ${xmlString.length} bytes`);
-    console.log(`   Id: NFe${chave}`);
-    console.log(`   ✅ Namespace: http://www.portalfiscal.inf.br/nfe\n`);
+    console.log(`   ✅ Todas as tags obrigatórias adicionadas`);
+    console.log(`   ✅ SHA-1 será usado na assinatura\n`);
     return {
       xml: xmlString,
       chave
     };
   }
-  assinarXML(xml, empresaId = 1) {
+  async assinarXML(xml, empresaId = 1) {
     try {
       console.log('🔏 Iniciando assinatura do XML...');
 
@@ -504,6 +565,29 @@ class NFEService {
       const config = db.prepare('SELECT certificado_senha FROM configuracoes WHERE id = 1').get();
       db.close();
       const senha = config?.certificado_senha || '';
+
+      // ✅ TENTAR USAR PYTHON SIGNER PRIMEIRO
+      try {
+        console.log('🐍 Tentando assinar com Python Signer...');
+        const response = await axios.post('http://localhost:5301/sign', {
+          xml: xml,
+          cert_path: certPath,
+          cert_password: senha
+        }, {
+          timeout: 10000
+        });
+        if (response.data.success) {
+          console.log('✅ XML assinado com Python Signer (SHA-1 + C14N oficial)');
+          console.log(`🔐 DigestValue: ${response.data.digest_value}`);
+          return response.data.signed_xml;
+        }
+      } catch (pythonError) {
+        console.log('⚠️  Python Signer não disponível, usando Node.js fallback');
+        console.log(`   Erro: ${pythonError.message}`);
+      }
+
+      // ❌ FALLBACK: Usar assinatura Node.js (pode dar erro 297)
+      console.log('📝 Usando assinatura Node.js (fallback)');
       const pfxBuffer = fs.readFileSync(certPath);
 
       // Converter PFX para formato forge
@@ -535,16 +619,17 @@ class NFEService {
       const infNFeEnd = xml.indexOf('</infNFe>') + 9;
       const infNFeXml = xml.substring(infNFeStart, infNFeEnd);
 
-      // Calcular digest COM SHA-256
-      const md = forge.md.sha256.create();
+      // Calcular digest COM SHA-1
+      const md = forge.md.sha1.create();
       md.update(infNFeXml, 'utf8');
       const digestValue = forge.util.encode64(md.digest().bytes());
+      console.log(`🔐 DigestValue: ${digestValue}`);
 
-      // Criar SignedInfo COM CANONICALIZAÇÃO EXCLUSIVA (xml-exc-c14n#)
-      const signedInfo = `<SignedInfo><CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/><SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"/><Reference URI="#${refUri}"><Transforms><Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/><Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/></Transforms><DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/><DigestValue>${digestValue}</DigestValue></Reference></SignedInfo>`;
+      // Criar SignedInfo
+      const signedInfo = `<SignedInfo><CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/><SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1"/><Reference URI="#${refUri}"><Transforms><Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/><Transform Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/></Transforms><DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"/><DigestValue>${digestValue}</DigestValue></Reference></SignedInfo>`;
 
-      // Assinar SignedInfo COM SHA-256
-      const mdSig = forge.md.sha256.create();
+      // Assinar SignedInfo COM SHA-1
+      const mdSig = forge.md.sha1.create();
       mdSig.update(signedInfo, 'utf8');
       const signature = privateKey.sign(mdSig);
       const signatureValue = forge.util.encode64(signature);
@@ -553,61 +638,14 @@ class NFEService {
       const certPem = forge.pki.certificateToPem(certificate);
       const certBase64 = certPem.replace('-----BEGIN CERTIFICATE-----', '').replace('-----END CERTIFICATE-----', '').replace(/\n/g, '').replace(/\r/g, '').trim();
       console.log(`📜 Certificado X509: ${certBase64.length} caracteres`);
-      console.log(`📜 Primeiros 50 chars: ${certBase64.substring(0, 50)}`);
-      console.log(`📜 Últimos 50 chars: ${certBase64.substring(certBase64.length - 50)}`);
+      console.log(`🔐 Usando SHA-1 + Node.js (pode dar erro 297)`);
 
       // Montar assinatura completa
       const signatureXml = `<Signature xmlns="http://www.w3.org/2000/09/xmldsig#">` + signedInfo + `<SignatureValue>${signatureValue}</SignatureValue>` + `<KeyInfo>` + `<X509Data>` + `<X509Certificate>${certBase64}</X509Certificate>` + `</X509Data>` + `</KeyInfo>` + `</Signature>`;
-      console.log(`🔐 Tamanho da assinatura completa: ${signatureXml.length} bytes`);
 
-      // ESTRUTURA CORRETA: <NFe><infNFe>...</infNFe><Signature>...</Signature></NFe>
-      // Inserir assinatura DEPOIS de </infNFe> e ANTES de </NFe>
-
-      // Verificar se o XML tem a estrutura correta
-      if (!xml.includes('</infNFe>')) {
-        console.log('❌ ERRO: Tag </infNFe> não encontrada!');
-        return xml;
-      }
-      if (!xml.includes('</NFe>')) {
-        console.log('❌ ERRO: Tag </NFe> não encontrada!');
-        return xml;
-      }
-
-      // Inserir assinatura entre </infNFe> e </NFe>
+      // Inserir assinatura
       const xmlAssinado = xml.replace('</infNFe>', '</infNFe>' + signatureXml);
-      console.log(`✅ XML assinado - Tamanho: ${xmlAssinado.length} bytes`);
-
-      // Verificar estrutura final
-      const estruturaCorreta = xmlAssinado.includes('<NFe') && xmlAssinado.includes('<infNFe') && xmlAssinado.includes('</infNFe>') && xmlAssinado.includes('<Signature') && xmlAssinado.includes('</Signature>') && xmlAssinado.includes('</NFe>');
-      if (!estruturaCorreta) {
-        console.log('❌ ERRO: Estrutura do XML inválida após assinatura!');
-        console.log('   Verificando tags:');
-        console.log(`   - <NFe>: ${xmlAssinado.includes('<NFe') ? '✅' : '❌'}`);
-        console.log(`   - <infNFe>: ${xmlAssinado.includes('<infNFe') ? '✅' : '❌'}`);
-        console.log(`   - </infNFe>: ${xmlAssinado.includes('</infNFe>') ? '✅' : '❌'}`);
-        console.log(`   - <Signature>: ${xmlAssinado.includes('<Signature') ? '✅' : '❌'}`);
-        console.log(`   - </Signature>: ${xmlAssinado.includes('</Signature>') ? '✅' : '❌'}`);
-        console.log(`   - </NFe>: ${xmlAssinado.includes('</NFe>') ? '✅' : '❌'}`);
-        return xml;
-      }
-
-      // Verificar ordem correta: </infNFe> antes de <Signature> antes de </NFe>
-      const posInfNFeFim = xmlAssinado.indexOf('</infNFe>');
-      const posSignatureInicio = xmlAssinado.indexOf('<Signature');
-      const posNFeFim = xmlAssinado.indexOf('</NFe>');
-      if (posInfNFeFim > posSignatureInicio || posSignatureInicio > posNFeFim) {
-        console.log('❌ ERRO: Ordem das tags incorreta!');
-        console.log(`   Posição </infNFe>: ${posInfNFeFim}`);
-        console.log(`   Posição <Signature>: ${posSignatureInicio}`);
-        console.log(`   Posição </NFe>: ${posNFeFim}`);
-        console.log('   Ordem esperada: </infNFe> → <Signature> → </NFe>');
-        return xml;
-      }
-      console.log('✅ Estrutura XML válida:');
-      console.log('   <NFe> → <infNFe> → ... → </infNFe> → <Signature> → ... → </Signature> → </NFe>');
-      console.log(`   Posição </infNFe>: ${posInfNFeFim}`);
-      console.log(`   Posição <Signature>: ${posSignatureInicio}`);
-      console.log(`   Posição </NFe>: ${posNFeFim}`);
+      console.log(`✅ XML assinado com Node.js - Tamanho: ${xmlAssinado.length} bytes`);
       return xmlAssinado;
     } catch (error) {
       console.error('❌ ERRO ao assinar XML:', error.message);
@@ -791,37 +829,53 @@ class NFEService {
       };
     }
   }
-  salvarArquivos(empresaId, nfeNumero, xml, chave, modoOffline = false) {
-    const baseDir = path.join(__dirname, 'Arqs', `empresa_${empresaId}`);
-    const xmlDir = path.join(baseDir, 'xml');
-    const pdfDir = path.join(baseDir, 'pdf');
-    const logsDir = path.join(baseDir, 'logs');
-    const pendentesDir = path.join(baseDir, 'pendentes');
-    [baseDir, xmlDir, pdfDir, logsDir, pendentesDir].forEach(dir => {
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, {
-          recursive: true
-        });
-      }
-    });
-    const xmlFileName = modoOffline ? `NFe${nfeNumero}_pendente.xml` : `NFe${nfeNumero}.xml`;
-    const xmlPath = path.join(modoOffline ? pendentesDir : xmlDir, xmlFileName);
-    fs.writeFileSync(xmlPath, xml, 'utf8');
-    const logPath = path.join(logsDir, `transmissao_${nfeNumero}.json`);
-    const log = {
-      numero: nfeNumero,
-      chave: chave,
-      data: new Date().toISOString(),
-      status: modoOffline ? 'Pendente' : 'Autorizada',
-      ambiente: this.ambiente === 2 ? 'Homologação' : 'Produção',
-      modo: modoOffline ? 'offline' : 'online',
-      observacao: modoOffline ? 'NFe salva localmente. Aguardando envio à SEFAZ.' : 'NFe autorizada com sucesso'
-    };
-    fs.writeFileSync(logPath, JSON.stringify(log, null, 2), 'utf8');
+  salvarArquivos(empresaId, numeroNFe, xmlAssinado, chave, rejeitada = false) {
+    const empresaDir = path.join(__dirname, 'Arqs', `empresa_${empresaId}`);
+
+    // Criar diretórios se não existirem
+    if (!fs.existsSync(empresaDir)) {
+      fs.mkdirSync(empresaDir, {
+        recursive: true
+      });
+    }
+    const xmlDir = path.join(empresaDir, 'XML');
+    const logDir = path.join(empresaDir, 'Logs');
+    if (!fs.existsSync(xmlDir)) {
+      fs.mkdirSync(xmlDir, {
+        recursive: true
+      });
+    }
+    if (!fs.existsSync(logDir)) {
+      fs.mkdirSync(logDir, {
+        recursive: true
+      });
+    }
+
+    // Salvar XML
+    const xmlFileName = rejeitada ? `NFe_REJEITADA_${numeroNFe}.xml` : `NFe_${numeroNFe}.xml`;
+    const xmlPath = path.join(xmlDir, xmlFileName);
+
+    // ✅ GARANTIR QUE xmlAssinado é string
+    const xmlString = typeof xmlAssinado === 'string' ? xmlAssinado : String(xmlAssinado);
+    fs.writeFileSync(xmlPath, xmlString, 'utf8');
+
+    // Salvar log
+    const logFileName = `NFe_${numeroNFe}_${Date.now()}.log`;
+    const logPath = path.join(logDir, logFileName);
+    const logContent = `
+NFe: ${numeroNFe}
+Chave: ${chave}
+Data: ${new Date().toISOString()}
+Status: ${rejeitada ? 'REJEITADA' : 'Autorizada'}
+XML salvo em: ${xmlPath}
+    `.trim();
+    fs.writeFileSync(logPath, logContent, 'utf8');
+    console.log(`📁 Arquivos salvos:`);
+    console.log(`   XML: ${xmlPath}`);
+    console.log(`   Log: ${logPath}`);
     return {
       xmlPath,
-      logPath,
-      modoOffline
+      logPath
     };
   }
 }

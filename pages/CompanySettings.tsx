@@ -4,7 +4,8 @@ import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
 import { Select } from '../components/ui/Select';
 import { Button } from '../components/ui/Button';
-import { SettingsIcon, UploadIcon, CheckCircleIcon, AlertCircleIcon, FileIcon, ImageIcon } from 'lucide-react';
+import { toast, Toaster } from 'sonner';
+import { SettingsIcon, UploadIcon, CheckCircleIcon, FileIcon, ImageIcon, EyeIcon, EyeOffIcon } from 'lucide-react';
 import { db } from '../utils/database';
 import { useCompany } from '../context/CompanyContext';
 export function CompanySettings() {
@@ -14,39 +15,32 @@ export function CompanySettings() {
   const [company, setCompany] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [uploadingCert, setUploadingCert] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [message, setMessage] = useState<{
-    type: 'success' | 'error';
+    type: 'success' | 'error' | 'warning' | 'info';
     text: string;
   } | null>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
   const certificateInputRef = useRef<HTMLInputElement>(null);
   const [settings, setSettings] = useState({
     // Certificado Digital
-    certificado_pfx: '',
     certificado_senha: '',
-    certificado_nome: '',
-    certificado_validade: '',
+    certificado_path: '',
     // Logo
-    logo_url: '',
-    logo_nome: '',
+    logo_path: '',
     // Configurações NFe
-    ambiente: 'homologacao' as 'homologacao' | 'producao',
-    serie_nfe: '1',
-    proximo_numero: '1',
-    // Configurações de Emissão
-    regime_tributario: '1',
-    tipo_emissao: '1',
-    finalidade_nfe: '1',
-    // Configurações de Impressão
-    formato_danfe: 'retrato' as 'retrato' | 'paisagem',
-    exibir_logo_danfe: true,
+    sefaz_ambiente: 2,
+    sefaz_uf: 'SP',
+    serie_nfe: 1,
+    proximo_numero: 1,
+    csosn_padrao: '102',
     // Configurações de E-mail
-    email_envio: '',
-    smtp_host: '',
-    smtp_port: '587',
-    smtp_user: '',
-    smtp_password: '',
-    smtp_secure: true
+    email_smtp_host: '',
+    email_smtp_port: 587,
+    email_smtp_user: '',
+    email_smtp_pass: ''
   });
   useEffect(() => {
     if (activeCompanyId) {
@@ -59,60 +53,135 @@ export function CompanySettings() {
       await db.initialize();
       const companyData = await db.getCompanyById(activeCompanyId);
       setCompany(companyData);
-      // Carregar configurações salvas (simulado - você pode adicionar endpoint específico)
-      // Por enquanto, usar valores padrão
-      setSettings(prev => ({
-        ...prev,
-        email_envio: companyData.email || '',
-        serie_nfe: '1',
-        proximo_numero: '1'
-      }));
+      // Carregar configurações
+      const config = await db.getConfiguracoes(activeCompanyId);
+      setSettings({
+        certificado_senha: config.certificado_senha || '',
+        certificado_path: config.certificado_path || '',
+        logo_path: companyData.logo_path || '',
+        sefaz_ambiente: config.sefaz_ambiente || 2,
+        sefaz_uf: config.sefaz_uf || 'SP',
+        serie_nfe: config.serie_nfe || 1,
+        proximo_numero: config.proximo_numero || 1,
+        csosn_padrao: config.csosn_padrao || '102',
+        email_smtp_host: config.email_smtp_host || '',
+        email_smtp_port: config.email_smtp_port || 587,
+        email_smtp_user: config.email_smtp_user || '',
+        email_smtp_pass: config.email_smtp_pass || ''
+      });
     } catch (error) {
       console.error('Error loading company settings:', error);
     } finally {
       setLoading(false);
     }
   };
-  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 2 * 1024 * 1024) {
-        showMessage('error', 'Logo deve ter no máximo 2MB');
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error('Logo deve ter no máximo 2MB');
+      return;
+    }
+    if (!file.type.startsWith('image/')) {
+      toast.error('Arquivo deve ser uma imagem');
+      return;
+    }
+    setUploadingLogo(true);
+    const loadingToast = toast.loading('Enviando logo...');
+    try {
+      const formData = new FormData();
+      formData.append('logo', file);
+      const token = localStorage.getItem('token');
+      const response = await fetch(`http://localhost:5300/api/empresas/${activeCompanyId}/upload/logo`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`
+        },
+        body: formData
+      });
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await response.text();
+        console.error('Resposta não é JSON:', text);
+        toast.error('Erro no servidor. Verifique o console.', {
+          id: loadingToast
+        });
         return;
       }
-      if (!file.type.startsWith('image/')) {
-        showMessage('error', 'Arquivo deve ser uma imagem');
-        return;
-      }
-      const reader = new FileReader();
-      reader.onload = event => {
+      const data = await response.json();
+      if (data.success) {
         setSettings(prev => ({
           ...prev,
-          logo_url: event.target?.result as string,
-          logo_nome: file.name
+          logo_path: data.path
         }));
-        showMessage('success', 'Logo carregada com sucesso');
-      };
-      reader.readAsDataURL(file);
+        toast.success('Logo enviada com sucesso!', {
+          id: loadingToast
+        });
+        await loadCompanySettings();
+      } else {
+        toast.error(data.error || 'Erro ao enviar logo', {
+          id: loadingToast
+        });
+      }
+    } catch (error) {
+      console.error('Error uploading logo:', error);
+      toast.error('Erro ao enviar logo', {
+        id: loadingToast
+      });
+    } finally {
+      setUploadingLogo(false);
     }
   };
-  const handleCertificateUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleCertificateUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      if (!file.name.endsWith('.pfx') && !file.name.endsWith('.p12')) {
-        showMessage('error', 'Arquivo deve ser .pfx ou .p12');
+    if (!file) return;
+    if (!file.name.endsWith('.pfx') && !file.name.endsWith('.p12')) {
+      toast.error('Arquivo deve ser .pfx ou .p12');
+      return;
+    }
+    setUploadingCert(true);
+    const loadingToast = toast.loading('Enviando certificado...');
+    try {
+      const formData = new FormData();
+      formData.append('certificado', file);
+      const token = localStorage.getItem('token');
+      const response = await fetch(`http://localhost:5300/api/empresas/${activeCompanyId}/upload/certificado`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`
+        },
+        body: formData
+      });
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await response.text();
+        console.error('Resposta não é JSON:', text);
+        toast.error('Erro no servidor. Verifique o console.', {
+          id: loadingToast
+        });
         return;
       }
-      const reader = new FileReader();
-      reader.onload = event => {
+      const data = await response.json();
+      if (data.success) {
         setSettings(prev => ({
           ...prev,
-          certificado_pfx: event.target?.result as string,
-          certificado_nome: file.name
+          certificado_path: data.path
         }));
-        showMessage('success', 'Certificado carregado com sucesso');
-      };
-      reader.readAsDataURL(file);
+        toast.success('Certificado enviado com sucesso!', {
+          id: loadingToast
+        });
+      } else {
+        toast.error(data.error || 'Erro ao enviar certificado', {
+          id: loadingToast
+        });
+      }
+    } catch (error) {
+      console.error('Error uploading certificate:', error);
+      toast.error('Erro ao enviar certificado', {
+        id: loadingToast
+      });
+    } finally {
+      setUploadingCert(false);
     }
   };
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -123,27 +192,23 @@ export function CompanySettings() {
     } = e.target;
     setSettings(prev => ({
       ...prev,
-      [name]: type === 'checkbox' ? (e.target as HTMLInputElement).checked : value
+      [name]: type === 'checkbox' ? (e.target as HTMLInputElement).checked : type === 'number' ? parseInt(value) || 0 : value
     }));
-  };
-  const showMessage = (type: 'success' | 'error', text: string) => {
-    setMessage({
-      type,
-      text
-    });
-    setTimeout(() => setMessage(null), 5000);
   };
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
+    const loadingToast = toast.loading('Salvando configurações...');
     try {
-      // Aqui você salvaria as configurações no backend
-      // Por enquanto, apenas simular
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      showMessage('success', 'Configurações salvas com sucesso!');
+      await db.saveConfiguracoes(activeCompanyId!, settings);
+      toast.success('Configurações salvas com sucesso!', {
+        id: loadingToast
+      });
     } catch (error) {
       console.error('Error saving settings:', error);
-      showMessage('error', 'Erro ao salvar configurações');
+      toast.error('Erro ao salvar configurações', {
+        id: loadingToast
+      });
     } finally {
       setSaving(false);
     }
@@ -167,15 +232,9 @@ export function CompanySettings() {
   }
   return <div className="flex-1 bg-gray-50">
       <Header title="Configurações da Empresa" />
+      <Toaster position="top-right" richColors />
 
       <main className="p-8">
-        {message && <div className={`mb-6 p-4 rounded-lg flex items-center gap-3 ${message.type === 'success' ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
-            {message.type === 'success' ? <CheckCircleIcon size={20} className="text-green-600" /> : <AlertCircleIcon size={20} className="text-red-600" />}
-            <p className={message.type === 'success' ? 'text-green-800' : 'text-red-800'}>
-              {message.text}
-            </p>
-          </div>}
-
         <form onSubmit={handleSubmit}>
           {/* Logo da Empresa */}
           <Card className="p-6 mb-6">
@@ -187,8 +246,8 @@ export function CompanySettings() {
             </div>
 
             <div className="flex items-start gap-6">
-              {settings.logo_url ? <div className="w-32 h-32 border-2 border-gray-300 rounded-lg overflow-hidden bg-white flex items-center justify-center">
-                  <img src={settings.logo_url} alt="Logo" className="max-w-full max-h-full object-contain" />
+              {settings.logo_path ? <div className="w-32 h-32 border-2 border-gray-300 rounded-lg overflow-hidden bg-white flex items-center justify-center">
+                  <img src={`http://localhost:5300/${settings.logo_path}`} alt="Logo" className="max-w-full max-h-full object-contain" />
                 </div> : <div className="w-32 h-32 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center bg-gray-50">
                   <ImageIcon size={32} className="text-gray-400" />
                 </div>}
@@ -202,13 +261,14 @@ export function CompanySettings() {
                   Formatos aceitos: PNG, JPG, JPEG. Tamanho máximo: 2MB.
                   Recomendado: 300x100px
                 </p>
-                <input ref={logoInputRef} type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
-                <Button type="button" variant="secondary" onClick={() => logoInputRef.current?.click()}>
+                <input ref={logoInputRef} type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" disabled={uploadingLogo} />
+                <Button type="button" variant="secondary" onClick={() => logoInputRef.current?.click()} disabled={uploadingLogo}>
                   <UploadIcon size={16} className="mr-2" />
-                  {settings.logo_nome ? 'Alterar Logo' : 'Fazer Upload'}
+                  {uploadingLogo ? 'Enviando...' : settings.logo_path ? 'Alterar Logo' : 'Fazer Upload'}
                 </Button>
-                {settings.logo_nome && <p className="text-sm text-gray-600 mt-2">
-                    Arquivo: {settings.logo_nome}
+                {settings.logo_path && <p className="text-sm text-green-600 mt-2 flex items-center gap-2">
+                    <CheckCircleIcon size={16} />
+                    Logo configurada
                   </p>}
               </div>
             </div>
@@ -229,24 +289,23 @@ export function CompanySettings() {
                   Faça upload do certificado digital A1 (arquivo .pfx ou .p12)
                   para assinar as NFe.
                 </p>
-                <input ref={certificateInputRef} type="file" accept=".pfx,.p12" onChange={handleCertificateUpload} className="hidden" />
-                <Button type="button" variant="secondary" onClick={() => certificateInputRef.current?.click()}>
+                <input ref={certificateInputRef} type="file" accept=".pfx,.p12" onChange={handleCertificateUpload} className="hidden" disabled={uploadingCert} />
+                <Button type="button" variant="secondary" onClick={() => certificateInputRef.current?.click()} disabled={uploadingCert}>
                   <UploadIcon size={16} className="mr-2" />
-                  {settings.certificado_nome ? 'Alterar Certificado' : 'Fazer Upload do Certificado'}
+                  {uploadingCert ? 'Enviando...' : settings.certificado_path ? 'Alterar Certificado' : 'Fazer Upload do Certificado'}
                 </Button>
-                {settings.certificado_nome && <p className="text-sm text-green-600 mt-2 flex items-center gap-2">
+                {settings.certificado_path && <p className="text-sm text-green-600 mt-2 flex items-center gap-2">
                     <CheckCircleIcon size={16} />
-                    Certificado: {settings.certificado_nome}
+                    Certificado configurado
                   </p>}
               </div>
 
-              <Input label="Senha do Certificado *" name="certificado_senha" type="password" value={settings.certificado_senha} onChange={handleChange} placeholder="Digite a senha do certificado" required={!!settings.certificado_pfx} />
-
-              {settings.certificado_validade && <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                  <p className="text-sm text-blue-800">
-                    <strong>Validade:</strong> {settings.certificado_validade}
-                  </p>
-                </div>}
+              <Input label="Senha do Certificado *" name="certificado_senha" type={showPassword ? 'text' : 'password'} value={settings.certificado_senha} onChange={handleChange} placeholder="Digite a senha do certificado" required={!!settings.certificado_path} rightIcon={<button type="button" onClick={() => setShowPassword(!showPassword)} className="p-1 text-gray-400 hover:text-gray-600 transition-colors">
+                    {showPassword ? <EyeOffIcon size={18} /> : <EyeIcon size={18} />}
+                  </button>} />
+              <Button type="button" variant="secondary" onClick={() => setShowPassword(!showPassword)} className="mt-2">
+                {showPassword ? 'Ocultar' : 'Mostrar'} Senha
+              </Button>
             </div>
           </Card>
 
@@ -260,52 +319,41 @@ export function CompanySettings() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Select label="Ambiente *" name="ambiente" value={settings.ambiente} onChange={handleChange} options={[{
-              value: 'homologacao',
+              <Select label="Ambiente *" name="sefaz_ambiente" value={settings.sefaz_ambiente.toString()} onChange={handleChange} options={[{
+              value: '2',
               label: 'Homologação (Testes)'
             }, {
-              value: 'producao',
+              value: '1',
               label: 'Produção (Real)'
             }]} required />
 
-              <Input label="Série da NFe *" name="serie_nfe" value={settings.serie_nfe} onChange={handleChange} placeholder="1" required />
-
-              <Input label="Próximo Número *" name="proximo_numero" type="number" value={settings.proximo_numero} onChange={handleChange} placeholder="1" required />
-
-              <Select label="Regime Tributário *" name="regime_tributario" value={settings.regime_tributario} onChange={handleChange} options={[{
-              value: '1',
-              label: 'Simples Nacional'
+              <Select label="UF da SEFAZ *" name="sefaz_uf" value={settings.sefaz_uf} onChange={handleChange} options={[{
+              value: 'SP',
+              label: 'São Paulo'
             }, {
-              value: '2',
-              label: 'Simples Nacional - Excesso'
+              value: 'RJ',
+              label: 'Rio de Janeiro'
             }, {
-              value: '3',
-              label: 'Regime Normal'
+              value: 'MG',
+              label: 'Minas Gerais'
             }]} required />
 
-              <Select label="Tipo de Emissão *" name="tipo_emissao" value={settings.tipo_emissao} onChange={handleChange} options={[{
-              value: '1',
-              label: 'Normal'
-            }, {
-              value: '2',
-              label: 'Contingência FS-IA'
-            }, {
-              value: '9',
-              label: 'Contingência Off-Line'
-            }]} required />
+              <Input label="Série da NFe *" name="serie_nfe" type="number" value={settings.serie_nfe.toString()} onChange={handleChange} placeholder="1" required />
 
-              <Select label="Finalidade da NFe *" name="finalidade_nfe" value={settings.finalidade_nfe} onChange={handleChange} options={[{
-              value: '1',
-              label: 'Normal'
+              <Input label="Próximo Número *" name="proximo_numero" type="number" value={settings.proximo_numero.toString()} onChange={handleChange} placeholder="1" required />
+
+              <Select label="CSOSN Padrão (Simples Nacional) *" name="csosn_padrao" value={settings.csosn_padrao} onChange={handleChange} options={[{
+              value: '102',
+              label: '102 - Sem permissão de crédito'
             }, {
-              value: '2',
-              label: 'Complementar'
+              value: '103',
+              label: '103 - Isenção do ICMS'
             }, {
-              value: '3',
-              label: 'Ajuste'
+              value: '300',
+              label: '300 - Imune'
             }, {
-              value: '4',
-              label: 'Devolução'
+              value: '400',
+              label: '400 - Não tributada'
             }]} required />
             </div>
 
@@ -314,32 +362,6 @@ export function CompanySettings() {
                 <strong>Atenção:</strong> Certifique-se de testar em ambiente de
                 homologação antes de usar em produção.
               </p>
-            </div>
-          </Card>
-
-          {/* Configurações de DANFE */}
-          <Card className="p-6 mb-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">
-              Configurações de Impressão (DANFE)
-            </h3>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Select label="Formato da DANFE *" name="formato_danfe" value={settings.formato_danfe} onChange={handleChange} options={[{
-              value: 'retrato',
-              label: 'Retrato (Padrão)'
-            }, {
-              value: 'paisagem',
-              label: 'Paisagem'
-            }]} required />
-
-              <div className="flex items-center pt-8">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" name="exibir_logo_danfe" checked={settings.exibir_logo_danfe} onChange={handleChange} className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500" />
-                  <span className="text-sm text-gray-700">
-                    Exibir logo na DANFE
-                  </span>
-                </label>
-              </div>
             </div>
           </Card>
 
@@ -353,24 +375,13 @@ export function CompanySettings() {
             </p>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Input label="E-mail de Envio" name="email_envio" type="email" value={settings.email_envio} onChange={handleChange} placeholder="nfe@suaempresa.com.br" className="md:col-span-2" />
+              <Input label="Servidor SMTP" name="email_smtp_host" value={settings.email_smtp_host} onChange={handleChange} placeholder="smtp.gmail.com" />
 
-              <Input label="Servidor SMTP" name="smtp_host" value={settings.smtp_host} onChange={handleChange} placeholder="smtp.gmail.com" />
+              <Input label="Porta SMTP" name="email_smtp_port" type="number" value={settings.email_smtp_port.toString()} onChange={handleChange} placeholder="587" />
 
-              <Input label="Porta SMTP" name="smtp_port" value={settings.smtp_port} onChange={handleChange} placeholder="587" />
+              <Input label="Usuário SMTP" name="email_smtp_user" value={settings.email_smtp_user} onChange={handleChange} placeholder="usuario@email.com" />
 
-              <Input label="Usuário SMTP" name="smtp_user" value={settings.smtp_user} onChange={handleChange} placeholder="usuario@email.com" />
-
-              <Input label="Senha SMTP" name="smtp_password" type="password" value={settings.smtp_password} onChange={handleChange} placeholder="••••••••" />
-
-              <div className="flex items-center pt-8">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" name="smtp_secure" checked={settings.smtp_secure} onChange={handleChange} className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500" />
-                  <span className="text-sm text-gray-700">
-                    Usar conexão segura (TLS/SSL)
-                  </span>
-                </label>
-              </div>
+              <Input label="Senha SMTP" name="email_smtp_pass" type="password" value={settings.email_smtp_pass} onChange={handleChange} placeholder="••••••••" />
             </div>
           </Card>
 

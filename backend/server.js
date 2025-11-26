@@ -77,6 +77,22 @@ const upload = multer({
   }
 });
 
+// Middleware para capturar erros do multer e retornar JSON
+function handleMulterError(err, req, res, next) {
+  if (err instanceof multer.MulterError) {
+    return res.status(400).json({
+      success: false,
+      error: err.message
+    });
+  } else if (err) {
+    return res.status(400).json({
+      success: false,
+      error: err.message
+    });
+  }
+  next();
+}
+
 // Inicializar sistema de migrações APENAS UMA VEZ
 const migrations = new MigrationSystem();
 
@@ -279,6 +295,7 @@ app.post('/api/empresas/:empresaId/upload/certificado', authenticateToken, uploa
   try {
     if (!req.file) {
       return res.status(400).json({
+        success: false,
         error: 'Nenhum arquivo enviado'
       });
     }
@@ -289,7 +306,7 @@ app.post('/api/empresas/:empresaId/upload/certificado', authenticateToken, uploa
     // Atualizar caminho nas configurações DA EMPRESA
     const db = getCompanyDb(req.params.empresaId);
     try {
-      const result = db.prepare(`
+      db.prepare(`
         UPDATE configuracoes 
         SET certificado_path = ?, updated_at = CURRENT_TIMESTAMP
         WHERE id = 1
@@ -307,6 +324,7 @@ app.post('/api/empresas/:empresaId/upload/certificado', authenticateToken, uploa
   } catch (error) {
     console.error('❌ Erro ao fazer upload do certificado:', error);
     res.status(500).json({
+      success: false,
       error: error.message
     });
   }
@@ -317,6 +335,7 @@ app.post('/api/empresas/:empresaId/upload/logo', authenticateToken, upload.singl
   try {
     if (!req.file) {
       return res.status(400).json({
+        success: false,
         error: 'Nenhum arquivo enviado'
       });
     }
@@ -339,6 +358,7 @@ app.post('/api/empresas/:empresaId/upload/logo', authenticateToken, upload.singl
   } catch (error) {
     console.error('❌ Erro ao fazer upload do logo:', error);
     res.status(500).json({
+      success: false,
       error: error.message
     });
   }
@@ -346,6 +366,34 @@ app.post('/api/empresas/:empresaId/upload/logo', authenticateToken, upload.singl
 
 // Servir arquivos estáticos da pasta Arqs
 app.use('/arqs', express.static(path.join(__dirname, 'Arqs')));
+
+// ===== MIDDLEWARE GLOBAL DE ERRO (DEVE VIR ANTES DAS ROTAS) =====
+app.use((err, req, res, next) => {
+  console.error('❌ Erro capturado pelo middleware global:', err);
+
+  // Se for erro do multer
+  if (err instanceof multer.MulterError) {
+    return res.status(400).json({
+      success: false,
+      error: err.message,
+      code: err.code
+    });
+  }
+
+  // Se for erro customizado com mensagem
+  if (err.message) {
+    return res.status(err.status || 500).json({
+      success: false,
+      error: err.message
+    });
+  }
+
+  // Erro genérico
+  return res.status(500).json({
+    success: false,
+    error: 'Erro interno do servidor'
+  });
+});
 
 // ===== NOVA ROTA: TRANSMITIR NFE PARA SEFAZ =====
 app.post('/api/empresas/:empresaId/nfes/:id/transmitir', authenticateToken, async (req, res) => {
@@ -375,8 +423,8 @@ app.post('/api/empresas/:empresaId/nfes/:id/transmitir', authenticateToken, asyn
       chave
     } = nfeService.gerarXML(nfe, emitente, destinatario, items);
 
-    // Assinar XML (PASSAR empresaId)
-    const xmlAssinado = nfeService.assinarXML(xml, req.params.empresaId);
+    // Assinar XML (PASSAR empresaId) - AWAIT pois agora é async
+    const xmlAssinado = await nfeService.assinarXML(xml, req.params.empresaId);
 
     // Tentar enviar para SEFAZ (COM VALIDAÇÃO INTEGRADA)
     const resultado = await nfeService.enviarNFe(xmlAssinado, emitente.estado, req.params.empresaId);
@@ -397,6 +445,7 @@ app.post('/api/empresas/:empresaId/nfes/:id/transmitir', authenticateToken, asyn
     let mensagemSefaz = '';
     let modoOffline = false;
     let protocolo = null;
+    let retorno = null;
     if (!resultado.online) {
       // Modo offline
       statusSefaz = 'Pendente';
@@ -405,7 +454,7 @@ app.post('/api/empresas/:empresaId/nfes/:id/transmitir', authenticateToken, asyn
       console.log('📝 NFe salva em modo offline');
     } else {
       // Processar resposta da SEFAZ
-      const retorno = resultado.data['soap:Envelope']?.['soap:Body']?.nfeResultMsg?.retEnviNFe;
+      retorno = resultado.data['soap:Envelope']?.['soap:Body']?.nfeResultMsg?.retEnviNFe;
       if (retorno) {
         const cStat = retorno.cStat;
         const xMotivo = retorno.xMotivo;
@@ -464,13 +513,58 @@ app.post('/api/empresas/:empresaId/nfes/:id/transmitir', authenticateToken, asyn
       protocolo: protocolo || 'N/A',
       xmlPath: paths.xmlPath,
       logPath: paths.logPath,
-      modoOffline: modoOffline
+      modoOffline: modoOffline,
+      cStat: statusSefaz === 'Autorizada' ? '100' : retorno?.protNFe?.infProt?.cStat || '999',
+      dhRecbto: retorno?.dhRecbto,
+      detalhes: resultado.data
     });
   } catch (error) {
     console.error('❌ Erro na transmissão:', error);
     res.status(500).json({
       success: false,
       error: 'Erro ao transmitir NFe',
+      details: error.message
+    });
+  }
+});
+
+// ===== NOVA ROTA: ABORTAR PROCESSAMENTO DE NFE =====
+app.post('/api/empresas/:empresaId/nfes/:id/abortar', authenticateToken, async (req, res) => {
+  try {
+    const db = getCompanyDb(req.params.empresaId);
+
+    // Buscar NFe
+    const nfe = db.prepare('SELECT * FROM nfes WHERE id = ?').get(req.params.id);
+    if (!nfe) {
+      return res.status(404).json({
+        error: 'NFe não encontrada'
+      });
+    }
+
+    // Verificar se está em processamento
+    if (nfe.status !== 'Processando') {
+      return res.status(400).json({
+        error: 'Apenas NFes em processamento podem ser abortadas',
+        status: nfe.status
+      });
+    }
+
+    // Atualizar status para Rejeitada
+    db.prepare(`
+      UPDATE nfes 
+      SET status = 'Rejeitada'
+      WHERE id = ?
+    `).run(req.params.id);
+    console.log(`⚠️  NFe #${nfe.numero} - Processamento abortado pelo usuário`);
+    res.json({
+      success: true,
+      message: 'Processamento abortado com sucesso',
+      novoStatus: 'Rejeitada'
+    });
+  } catch (error) {
+    console.error('❌ Erro ao abortar NFe:', error);
+    res.status(500).json({
+      error: 'Erro ao abortar processamento',
       details: error.message
     });
   }

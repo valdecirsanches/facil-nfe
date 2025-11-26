@@ -66,8 +66,8 @@ export function Sidebar({
   }];
   return <aside className="w-64 bg-white border-r border-gray-200 flex flex-col">
       <div className="p-6 border-b border-gray-200">
-        <h1 className="text-2xl font-bold text-gray-900">Fácil NFe</h1>
-        <p className="text-sm text-gray-600 mt-1">Gestão de Notas Fiscais</p>
+        <h1 className="text-2xl font-bold text-gray-900">Easy NFe 1.0</h1>
+        <p className="text-sm text-gray-600 mt-1">Gestão de NFe</p>
       </div>
 
       <nav className="flex-1 p-4 overflow-y-auto">
@@ -86,7 +86,7 @@ export function Sidebar({
       </nav>
 
       <div className="p-4 border-t border-gray-200">
-        <p className="text-xs text-gray-500 text-center">Fácil NFe v1.0</p>
+        <p className="text-xs text-gray-500 text-center">EasyNFe v1.0</p>
       </div>
     </aside>;
 }
