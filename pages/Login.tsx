@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
-import { AlertCircleIcon, BuildingIcon } from 'lucide-react';
+import { AlertCircleIcon, BuildingIcon, EyeIcon, EyeOffIcon } from 'lucide-react';
 interface LoginProps {
   onRegisterClick: () => void;
 }
@@ -12,6 +12,7 @@ export function Login({
 }: LoginProps) {
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const {
@@ -51,7 +52,12 @@ export function Login({
         <form onSubmit={handleSubmit} className="space-y-4">
           <Input label="E-mail" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="seu@email.com" required disabled={loading} />
 
-          <Input label="Senha" type="password" value={senha} onChange={e => setSenha(e.target.value)} placeholder="••••••••" required disabled={loading} />
+          <div className="relative">
+            <Input label="Senha" type={showPassword ? 'text' : 'password'} value={senha} onChange={e => setSenha(e.target.value)} placeholder="••••••••" required disabled={loading} />
+            <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-9 text-gray-500 hover:text-gray-700 transition-colors" tabIndex={-1}>
+              {showPassword ? <EyeOffIcon size={20} /> : <EyeIcon size={20} />}
+            </button>
+          </div>
 
           <Button type="submit" className="w-full" disabled={loading}>
             {loading ? 'Entrando...' : 'Entrar'}

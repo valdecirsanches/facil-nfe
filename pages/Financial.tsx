@@ -4,7 +4,9 @@ import { useCompany } from '../context/CompanyContext';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Dialog } from '../components/ui/Dialog';
-import { DollarSignIcon, TrendingUpIcon, TrendingDownIcon, CalendarIcon, CheckCircleIcon, XCircleIcon, ClockIcon, PlusIcon, EyeIcon } from 'lucide-react';
+import { Input } from '../components/ui/Input';
+import { Select } from '../components/ui/Select';
+import { DollarSignIcon, TrendingUpIcon, TrendingDownIcon, CalendarIcon, CheckCircleIcon, XCircleIcon, ClockIcon, PlusIcon, EyeIcon, TrashIcon } from 'lucide-react';
 import { toast } from 'sonner';
 interface Transaction {
   id: number;
@@ -15,6 +17,16 @@ interface Transaction {
   data_vencimento: string;
   data_pagamento: string | null;
   status: 'pendente' | 'pago' | 'vencido' | 'cancelado';
+  forma_pagamento: string;
+  observacoes: string;
+  pedido_id?: number;
+}
+interface NewTransaction {
+  tipo: 'receber' | 'pagar';
+  descricao: string;
+  cliente_fornecedor: string;
+  valor: number;
+  data_vencimento: string;
   forma_pagamento: string;
   observacoes: string;
 }
@@ -30,6 +42,16 @@ export function Financial() {
   const [filterType, setFilterType] = useState<'all' | 'receber' | 'pagar'>('all');
   const [showNewTransactionModal, setShowNewTransactionModal] = useState(false);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [newTransaction, setNewTransaction] = useState<NewTransaction>({
+    tipo: 'receber',
+    descricao: '',
+    cliente_fornecedor: '',
+    valor: 0,
+    data_vencimento: '',
+    forma_pagamento: 'PIX',
+    observacoes: ''
+  });
   useEffect(() => {
     if (activeCompanyId) {
       fetchTransactions();
@@ -38,66 +60,96 @@ export function Financial() {
   const fetchTransactions = async () => {
     try {
       setLoading(true);
-      // Simulação - em produção, buscar do backend
-      const mockTransactions: Transaction[] = [{
-        id: 1,
-        tipo: 'receber',
-        descricao: 'Venda NFe #123',
-        cliente_fornecedor: 'Cliente Exemplo LTDA',
-        valor: 1500.0,
-        data_vencimento: '2024-01-25',
-        data_pagamento: null,
-        status: 'pendente',
-        forma_pagamento: 'PIX',
-        observacoes: ''
-      }, {
-        id: 2,
-        tipo: 'receber',
-        descricao: 'Venda NFe #124',
-        cliente_fornecedor: 'Empresa ABC',
-        valor: 2300.5,
-        data_vencimento: '2024-01-20',
-        data_pagamento: '2024-01-19',
-        status: 'pago',
-        forma_pagamento: 'Boleto',
-        observacoes: ''
-      }, {
-        id: 3,
-        tipo: 'pagar',
-        descricao: 'Fornecedor XYZ',
-        cliente_fornecedor: 'Fornecedor XYZ LTDA',
-        valor: 890.0,
-        data_vencimento: '2024-01-30',
-        data_pagamento: null,
-        status: 'pendente',
-        forma_pagamento: 'Transferência',
-        observacoes: 'Pagamento parcelado'
-      }, {
-        id: 4,
-        tipo: 'receber',
-        descricao: 'Venda NFe #122',
-        cliente_fornecedor: 'Comércio 123',
-        valor: 450.0,
-        data_vencimento: '2024-01-10',
-        data_pagamento: null,
-        status: 'vencido',
-        forma_pagamento: 'Dinheiro',
-        observacoes: ''
-      }];
-      setTransactions(mockTransactions);
+      const token = localStorage.getItem('token');
+      const response = await fetch(`http://localhost:5300/api/empresas/${activeCompanyId}/financeiro`, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      if (!response.ok) throw new Error('Erro ao carregar transações');
+      const data = await response.json();
+      setTransactions(data);
     } catch (error) {
+      console.error('Erro ao carregar transações:', error);
       toast.error('Erro ao carregar transações');
     } finally {
       setLoading(false);
     }
   };
-  const handleMarkAsPaid = async (transactionId: number) => {
+  const handleCreateTransaction = async () => {
+    if (!newTransaction.descricao || !newTransaction.cliente_fornecedor || newTransaction.valor <= 0) {
+      toast.error('Preencha todos os campos obrigatórios');
+      return;
+    }
+    setCreating(true);
     try {
-      // Simulação - em produção, chamar API
+      const token = localStorage.getItem('token');
+      const response = await fetch(`http://localhost:5300/api/empresas/${activeCompanyId}/financeiro`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(newTransaction)
+      });
+      if (!response.ok) throw new Error('Erro ao criar transação');
+      toast.success('Transação criada com sucesso!');
+      setShowNewTransactionModal(false);
+      setNewTransaction({
+        tipo: 'receber',
+        descricao: '',
+        cliente_fornecedor: '',
+        valor: 0,
+        data_vencimento: '',
+        forma_pagamento: 'PIX',
+        observacoes: ''
+      });
+      fetchTransactions();
+    } catch (error) {
+      console.error('Erro ao criar transação:', error);
+      toast.error('Erro ao criar transação');
+    } finally {
+      setCreating(false);
+    }
+  };
+  const handleMarkAsPaid = async (transactionId: number) => {
+    if (!window.confirm('Marcar esta transação como paga?')) return;
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`http://localhost:5300/api/empresas/${activeCompanyId}/financeiro/${transactionId}/pagar`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        }
+      });
+      if (!response.ok) throw new Error('Erro ao atualizar transação');
       toast.success('Transação marcada como paga!');
       fetchTransactions();
     } catch (error) {
+      console.error('Erro ao atualizar transação:', error);
       toast.error('Erro ao atualizar transação');
+    }
+  };
+  const handleDeleteTransaction = async (transactionId: number) => {
+    if (!window.confirm('Tem certeza que deseja excluir esta transação?')) return;
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`http://localhost:5300/api/empresas/${activeCompanyId}/financeiro/${transactionId}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      if (!response.ok) throw new Error('Erro ao excluir transação');
+      toast.success('Transação excluída!');
+      fetchTransactions();
+      if (selectedTransaction?.id === transactionId) {
+        setSelectedTransaction(null);
+      }
+    } catch (error) {
+      console.error('Erro ao excluir transação:', error);
+      toast.error('Erro ao excluir transação');
     }
   };
   const formatCurrency = (value: number) => {
@@ -339,24 +391,64 @@ export function Financial() {
       {/* Modal de Nova Transação */}
       <Dialog isOpen={showNewTransactionModal} onClose={() => setShowNewTransactionModal(false)} title="Nova Transação" showFooter={false}>
         <div className="space-y-4">
-          <div className="p-6 bg-blue-50 border border-blue-200 rounded-lg text-center">
-            <DollarSignIcon size={48} className="mx-auto text-blue-600 mb-4" />
-            <h3 className="text-lg font-bold text-gray-900 mb-2">
-              Funcionalidade em Desenvolvimento
-            </h3>
-            <p className="text-sm text-gray-600 mb-4">
-              O formulário completo de criação de transações será implementado
-              em breve.
-            </p>
-            <p className="text-xs text-gray-500">
-              Incluirá: tipo (receber/pagar), descrição, valor, vencimento,
-              forma de pagamento, etc.
-            </p>
+          <Select label="Tipo *" value={newTransaction.tipo} onChange={e => setNewTransaction({
+          ...newTransaction,
+          tipo: e.target.value as 'receber' | 'pagar'
+        })} required>
+            <option value="receber">A Receber</option>
+            <option value="pagar">A Pagar</option>
+          </Select>
+
+          <Input label="Descrição *" value={newTransaction.descricao} onChange={e => setNewTransaction({
+          ...newTransaction,
+          descricao: e.target.value
+        })} placeholder="Ex: Venda NFe #123" required />
+
+          <Input label={newTransaction.tipo === 'receber' ? 'Cliente *' : 'Fornecedor *'} value={newTransaction.cliente_fornecedor} onChange={e => setNewTransaction({
+          ...newTransaction,
+          cliente_fornecedor: e.target.value
+        })} placeholder="Nome do cliente ou fornecedor" required />
+
+          <Input label="Valor *" type="number" step="0.01" value={newTransaction.valor} onChange={e => setNewTransaction({
+          ...newTransaction,
+          valor: parseFloat(e.target.value) || 0
+        })} placeholder="0.00" required />
+
+          <Input label="Data de Vencimento *" type="date" value={newTransaction.data_vencimento} onChange={e => setNewTransaction({
+          ...newTransaction,
+          data_vencimento: e.target.value
+        })} required />
+
+          <Select label="Forma de Pagamento *" value={newTransaction.forma_pagamento} onChange={e => setNewTransaction({
+          ...newTransaction,
+          forma_pagamento: e.target.value
+        })} required>
+            <option value="PIX">PIX</option>
+            <option value="Dinheiro">Dinheiro</option>
+            <option value="Boleto">Boleto</option>
+            <option value="Transferência">Transferência</option>
+            <option value="Cartão de Crédito">Cartão de Crédito</option>
+            <option value="Cartão de Débito">Cartão de Débito</option>
+          </Select>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Observações
+            </label>
+            <textarea value={newTransaction.observacoes} onChange={e => setNewTransaction({
+            ...newTransaction,
+            observacoes: e.target.value
+          })} rows={3} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Observações adicionais..." />
           </div>
 
-          <Button className="w-full" variant="secondary" onClick={() => setShowNewTransactionModal(false)}>
-            Fechar
-          </Button>
+          <div className="flex gap-3 pt-4">
+            <Button className="flex-1" variant="secondary" onClick={() => setShowNewTransactionModal(false)} disabled={creating}>
+              Cancelar
+            </Button>
+            <Button className="flex-1" onClick={handleCreateTransaction} disabled={creating}>
+              {creating ? 'Criando...' : 'Criar Transação'}
+            </Button>
+          </div>
         </div>
       </Dialog>
 
@@ -430,9 +522,16 @@ export function Financial() {
               </div>
             </Card>
 
-            <Button className="w-full" variant="secondary" onClick={() => setSelectedTransaction(null)}>
-              Fechar
-            </Button>
+            <div className="flex gap-3">
+              {!selectedTransaction.pedido_id && selectedTransaction.status === 'pendente' && <Button className="flex-1" variant="secondary" onClick={() => handleDeleteTransaction(selectedTransaction.id)}>
+                    <TrashIcon size={16} className="mr-2" />
+                    Excluir
+                  </Button>}
+
+              <Button className="flex-1" variant="secondary" onClick={() => setSelectedTransaction(null)}>
+                Fechar
+              </Button>
+            </div>
           </div>
         </Dialog>}
     </div>;

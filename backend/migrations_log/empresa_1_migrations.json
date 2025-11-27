@@ -8,6 +8,7 @@
     "migration_008_add_transportadora_to_enderecos",
     "migration_009_add_ie_to_enderecos",
     "migration_011_add_pedido_id_to_financeiro",
-    "migration_011_add_pedido_id_to_nfes"
+    "migration_011_add_pedido_id_to_nfes",
+    "migration_013_add_pedido_id_to_nfes"
   ]
 }

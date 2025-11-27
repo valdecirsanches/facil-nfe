@@ -14,6 +14,17 @@ const app = express();
 const PORT = process.env.PORT || 5300;
 const JWT_SECRET = process.env.JWT_SECRET || 'seu-secret-aqui';
 
+
+// Função para obter banco de dados da empresa
+
+function getDatabase(empresaId) {
+
+  const dbPath = path.join(__dirname, `empresa_${empresaId}.db`)
+
+  return new Database(dbPath)
+
+}
+
 // ===== FUNÇÃO PARA GARANTIR CEP COMO STRING =====
 function sanitizeCEP(cep) {
   if (!cep) return '';
@@ -2318,6 +2329,128 @@ app.put('/api/empresas/:empresaId/pedidos/:id/vincular-nfe', authenticateToken, 
     res.status(500).json({ error: error.message })
   }
 })
+
+// GET - Listar todas as transações financeiras da empresa
+app.get('/api/empresas/:empresaId/financeiro', authenticateToken, async (req, res) => {
+  try {
+    const { empresaId } = req.params
+    const db = getDatabase(empresaId)
+    
+    const transactions = db.prepare(`
+      SELECT * FROM financeiro 
+      ORDER BY data_vencimento DESC
+    `).all()
+    
+    res.json(transactions)
+  } catch (error) {
+    console.error('Erro ao listar transações:', error)
+    res.status(500).json({ error: 'Erro ao listar transações' })
+  }
+})
+
+// POST - Criar nova transação financeira
+app.post('/api/empresas/:empresaId/financeiro', authenticateToken, async (req, res) => {
+  try {
+    const { empresaId } = req.params
+    const { tipo, descricao, cliente_fornecedor, valor, data_vencimento, forma_pagamento, observacoes } = req.body
+    const db = getDatabase(empresaId)
+    
+    const result = db.prepare(`
+      INSERT INTO financeiro (
+        tipo, descricao, cliente_fornecedor, valor,
+        data_vencimento, status, forma_pagamento, observacoes
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      tipo,
+      descricao,
+      cliente_fornecedor,
+      valor,
+      data_vencimento,
+      'pendente',
+      forma_pagamento,
+      observacoes || null
+    )
+    
+    res.json({ id: result.lastInsertRowid, message: 'Transação criada com sucesso' })
+  } catch (error) {
+    console.error('Erro ao criar transação:', error)
+    res.status(500).json({ error: 'Erro ao criar transação' })
+  }
+})
+
+// PUT - Marcar transação como paga
+app.put('/api/empresas/:empresaId/financeiro/:id/pagar', authenticateToken, async (req, res) => {
+  try {
+    const { empresaId, id } = req.params
+    const db = getDatabase(empresaId)
+    
+    db.prepare(`
+      UPDATE financeiro 
+      SET status = 'pago', data_pagamento = ? 
+      WHERE id = ?
+    `).run(new Date().toISOString().split('T')[0], id)
+    
+    res.json({ message: 'Transação marcada como paga' })
+  } catch (error) {
+    console.error('Erro ao atualizar transação:', error)
+    res.status(500).json({ error: 'Erro ao atualizar transação' })
+  }
+})
+
+// DELETE - Excluir transação
+app.delete('/api/empresas/:empresaId/financeiro/:id', authenticateToken, async (req, res) => {
+  try {
+    const { empresaId, id } = req.params
+    const db = getDatabase(empresaId)
+    
+    // Verificar se não é transação de pedido
+    const transaction = db.prepare('SELECT pedido_id FROM financeiro WHERE id = ?').get(id)
+    if (transaction && transaction.pedido_id) {
+      return res.status(400).json({ error: 'Não é possível excluir transação vinculada a pedido' })
+    }
+    
+    db.prepare('DELETE FROM financeiro WHERE id = ?').run(id)
+    
+    res.json({ message: 'Transação excluída com sucesso' })
+  } catch (error) {
+    console.error('Erro ao excluir transação:', error)
+    res.status(500).json({ error: 'Erro ao excluir transação' })
+  }
+})
+
+
+// PUT - Alterar senha do usuário
+app.put('/api/auth/change-password', authenticateToken, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body
+    const userId = req.user.id
+    
+    // Buscar usuário
+    const user = db.prepare('SELECT * FROM usuarios WHERE id = ?').get(userId)
+    if (!user) {
+      return res.status(404).json({ error: 'Usuário não encontrado' })
+    }
+    
+    // Verificar senha atual
+    const isValid = await bcrypt.compare(currentPassword, user.senha)
+    if (!isValid) {
+      return res.status(401).json({ error: 'Senha atual incorreta' })
+    }
+    
+    // Hash da nova senha
+    const hashedPassword = await bcrypt.hash(newPassword, 10)
+    
+    // Atualizar senha
+    db.prepare('UPDATE usuarios SET senha = ? WHERE id = ?').run(hashedPassword, userId)
+    
+    res.json({ message: 'Senha alterada com sucesso' })
+  } catch (error) {
+    console.error('Erro ao alterar senha:', error)
+    res.status(500).json({ error: 'Erro ao alterar senha' })
+  }
+})
+
+
 
 // ===== INICIAR SERVIDOR =====
 app.listen(PORT, () => {
