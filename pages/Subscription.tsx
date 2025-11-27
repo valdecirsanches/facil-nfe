@@ -42,6 +42,7 @@ export function Subscription() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [currentPlan, setCurrentPlan] = useState<CompanyPlan | null>(null);
   const [currentPlanId, setCurrentPlanId] = useState<number | null>(null);
+  const [currentPlanName, setCurrentPlanName] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [upgrading, setUpgrading] = useState(false);
   const [error, setError] = useState('');
@@ -69,7 +70,13 @@ export function Subscription() {
         });
         if (empresaResponse.ok) {
           const empresaData = await empresaResponse.json();
-          setCurrentPlanId(empresaData.plano_id || 1);
+          const planId = empresaData.plano_id || 1;
+          setCurrentPlanId(planId);
+          // Buscar nome do plano
+          const plan = plansData.find((p: Plan) => p.id === planId);
+          if (plan) {
+            setCurrentPlanName(plan.nome);
+          }
         }
         // Buscar limites e uso
         const limitsResponse = await fetch(`http://localhost:5300/api/empresas/${user.empresa_id}/limites`, {
@@ -205,7 +212,7 @@ export function Subscription() {
               <div className="flex items-center gap-2 mb-2">
                 <CrownIcon size={24} className="text-green-600" />
                 <h2 className="text-xl font-bold text-gray-900">
-                  Plano {currentPlan.plano.nome}
+                  {currentPlanName || currentPlan.plano.nome}
                 </h2>
               </div>
               <p className="text-gray-600">Seu plano atual</p>
@@ -264,7 +271,6 @@ export function Subscription() {
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {plans.map(plan => {
-          // Usar currentPlanId para identificar plano atual
           const isCurrentPlan = currentPlanId === plan.id;
           return <Card key={plan.id} className={`p-6 ${isCurrentPlan ? 'border-2 border-green-500 shadow-lg' : 'border border-gray-200'}`}>
                 {isCurrentPlan && <div className="mb-4">
@@ -334,7 +340,7 @@ export function Subscription() {
       </div>
 
       {/* Modal de Fatura Gerada */}
-      {showInvoiceModal && generatedInvoice && <Dialog isOpen={showInvoiceModal} onClose={() => setShowInvoiceModal(false)} title="Fatura Gerada">
+      {showInvoiceModal && generatedInvoice && <Dialog isOpen={showInvoiceModal} onClose={() => setShowInvoiceModal(false)} title="Fatura Gerada" showFooter={false}>
           <div className="space-y-4">
             <div className="flex items-center justify-center mb-4">
               <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center">
@@ -389,7 +395,7 @@ export function Subscription() {
               </Button>
               <Button className="flex-1" onClick={() => {
             setShowInvoiceModal(false);
-            window.location.href = '#billing'; // Navegar para página de faturas
+            window.location.href = '#billing';
           }}>
                 Ver Faturas
               </Button>

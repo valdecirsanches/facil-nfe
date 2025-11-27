@@ -13,12 +13,15 @@ import { SystemSettings } from './pages/SystemSettings';
 import { DatabaseInfo } from './pages/DatabaseInfo';
 import { Subscription } from './pages/Subscription';
 import { Billing } from './pages/Billing';
+import { Orders } from './pages/Orders';
+import { Financial } from './pages/Financial';
 import { Sidebar } from './components/Sidebar';
 import { TopBar } from './components/TopBar';
+import { SimpleHeader } from './components/SimpleHeader';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { CompanyProvider } from './context/CompanyContext';
 import { Toaster } from 'sonner';
-type Page = 'dashboard' | 'clients' | 'products' | 'carriers' | 'new-nfe' | 'nfe-list' | 'users' | 'companies' | 'system-settings' | 'database-info' | 'subscription' | 'billing';
+type Page = 'dashboard' | 'clients' | 'products' | 'carriers' | 'new-nfe' | 'nfe-list' | 'orders' | 'financial' | 'users' | 'companies' | 'system-settings' | 'database-info' | 'subscription' | 'billing';
 function AppContent() {
   const {
     user
@@ -30,7 +33,6 @@ function AppContent() {
   };
   const handleRegisterSuccess = () => {
     setShowRegister(false);
-    // User will need to login after registration
   };
   if (!user) {
     if (showRegister) {
@@ -38,10 +40,13 @@ function AppContent() {
     }
     return <Login onRegisterClick={() => setShowRegister(true)} />;
   }
+  // Páginas que usam SimpleHeader (sem empresa)
+  const pagesWithSimpleHeader = ['subscription', 'billing'];
+  const useSimpleHeader = pagesWithSimpleHeader.includes(currentPage);
   return <div className="flex h-screen bg-gray-50">
       <Sidebar currentPage={currentPage} onNavigate={handleNavigate} />
       <div className="flex-1 flex flex-col overflow-hidden">
-        <TopBar />
+        {useSimpleHeader ? <SimpleHeader /> : <TopBar />}
         <main className="flex-1 overflow-y-auto">
           {currentPage === 'dashboard' && <Dashboard onNavigate={handleNavigate} />}
           {currentPage === 'clients' && <Clients />}
@@ -49,6 +54,8 @@ function AppContent() {
           {currentPage === 'carriers' && <Carriers />}
           {currentPage === 'new-nfe' && <NewNFe onNavigate={handleNavigate} />}
           {currentPage === 'nfe-list' && <NFeList onNavigate={handleNavigate} />}
+          {currentPage === 'orders' && <Orders />}
+          {currentPage === 'financial' && <Financial />}
           {currentPage === 'users' && <Users />}
           {currentPage === 'companies' && <Companies />}
           {currentPage === 'system-settings' && <SystemSettings />}

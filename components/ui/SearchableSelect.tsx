@@ -30,7 +30,9 @@ export function SearchableSelect({
   const [filteredOptions, setFilteredOptions] = useState(options);
   const dropdownRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const filtered = options.filter(option => option.label.toLowerCase().includes(searchTerm.toLowerCase()) || option.subtitle?.toLowerCase().includes(searchTerm.toLowerCase()));
+    // Filter out invalid options and then apply search filter
+    const validOptions = options.filter(option => option && option.label);
+    const filtered = validOptions.filter(option => option.label.toLowerCase().includes(searchTerm.toLowerCase()) || option.subtitle?.toLowerCase().includes(searchTerm.toLowerCase()));
     setFilteredOptions(filtered);
   }, [searchTerm, options]);
   useEffect(() => {
@@ -42,7 +44,7 @@ export function SearchableSelect({
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
-  const selectedOption = options.find(opt => opt.value === value);
+  const selectedOption = options.find(opt => opt && opt.value === value);
   const handleSelect = (optionValue: string) => {
     onChange(optionValue);
     setIsOpen(false);

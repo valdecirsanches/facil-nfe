@@ -2151,29 +2151,13 @@ app.put('/api/empresas/:empresaId/pedidos/:id/rejeitar', authenticateToken, asyn
     
     if (!pedido) {
       return res.status(404).json({ error: 'Pedido não encontrado' })
-  }
-    
-    if (pedido.status !== 'pendente') {
-      return res.status(400).json({ error: 'Apenas pedidos pendentes podem ser rejeitados' })
-    }
-    
-    // Rejeitar pedido
-    db.prepare(`
-      UPDATE pedidos 
-      SET status = 'rejeitado', 
-          rejeitado_por = ?, 
-          rejeitado_em = CURRENT_TIMESTAMP,
-          motivo_rejeicao = ?,
-          updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `).run(req.user.id, motivo || 'Sem motivo informado', id)
-    
-    res.json({ success: true, message: 'Pedido rejeitado' })
-  } catch (error) {
-    console.error('Erro ao rejeitar pedido:', error)
-    res.status(500).json({ error: error.message })
-  }
-})
+
+
+
+
+
+
+
 
 // Faturar pedido (cria registro financeiro)
 app.put('/api/empresas/:empresaId/pedidos/:id/faturar', authenticateToken, async (req, res) => {
@@ -2227,6 +2211,92 @@ app.put('/api/empresas/:empresaId/pedidos/:id/faturar', authenticateToken, async
   }
 })
 
+// Desfaturar pedido (remove registro financeiro)
+app.put('/api/empresas/:empresaId/pedidos/:id/desfaturar', authenticateToken, async (req, res) => {
+  try {
+    const { empresaId, id } = req.params
+    const db = getCompanyDb(empresaId)
+    
+    // Buscar pedido
+    const pedido = db.prepare('SELECT * FROM pedidos WHERE id = ?').get(id)
+    
+    if (!pedido) {
+      return res.status(404).json({ error: 'Pedido não encontrado' })
+    }
+    
+    if (pedido.status !== 'faturado') {
+      return res.status(400).json({ error: 'Apenas pedidos faturados podem ser desfaturados' })
+    }
+    
+    // Verificar se há NFe gerada
+    const nfe = db.prepare('SELECT id FROM nfes WHERE pedido_id = ?').get(id)
+    if (nfe) {
+      return res.status(400).json({ error: 'Não é possível desfaturar pedido com NFe gerada' })
+    }
+    
+    // Remover registro financeiro
+    db.prepare('DELETE FROM financeiro WHERE pedido_id = ?').run(id)
+    
+    // Voltar status do pedido para aprovado
+    db.prepare('UPDATE pedidos SET status = ? WHERE id = ?').run('aprovado', id)
+    
+    res.json({ message: 'Pedido desfaturado com sucesso' })
+  } catch (error) {
+    console.error('Erro ao desfaturar pedido:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+// Faturar pedido (cria registro financeiro)
+app.put('/api/empresas/:empresaId/pedidos/:id/faturar', authenticateToken, async (req, res) => {
+  try {
+    const { empresaId, id } = req.params
+    const db = getCompanyDb(empresaId)
+    
+    // Buscar pedido
+    const pedido = db.prepare('SELECT * FROM pedidos WHERE id = ?').get(id)
+    
+    if (!pedido) {
+      return res.status(404).json({ error: 'Pedido não encontrado' })
+    }
+    
+    if (pedido.status !== 'aprovado') {
+      return res.status(400).json({ error: 'Apenas pedidos aprovados podem ser faturados' })
+    }
+    
+    // Buscar cliente
+    const cliente = db.prepare('SELECT razao_social FROM clientes WHERE id = ?').get(pedido.cliente_id)
+    
+    // Criar registro financeiro (contas a receber)
+    const insertFinanceiro = db.prepare(`
+      INSERT INTO financeiro (
+        tipo, descricao, cliente_fornecedor, valor, 
+        data_vencimento, status, forma_pagamento, 
+        pedido_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    `)
+    
+    const dataVencimento = pedido.data_entrega || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+    
+    insertFinanceiro.run(
+      'receber',
+      `Pedido ${pedido.numero}`,
+      cliente?.razao_social || 'Cliente',
+      pedido.valor_final,
+      dataVencimento,
+      'pendente',
+      'A definir',
+      id
+    )
+    
+    // Atualizar status do pedido
+    db.prepare('UPDATE pedidos SET status = ? WHERE id = ?').run('faturado', id)
+    
+    res.json({ message: 'Pedido faturado com sucesso' })
+  } catch (error) {
+    console.error('Erro ao faturar pedido:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
 
 // Desfaturar pedido (remove registro financeiro)
 app.put('/api/empresas/:empresaId/pedidos/:id/desfaturar', authenticateToken, async (req, res) => {
@@ -2263,7 +2333,154 @@ app.put('/api/empresas/:empresaId/pedidos/:id/desfaturar', authenticateToken, as
     res.status(500).json({ error: error.message })
   }
 })
+// Faturar pedido (cria registro financeiro)
+app.put('/api/empresas/:empresaId/pedidos/:id/faturar', authenticateToken, async (req, res) => {
+  try {
+    const { empresaId, id } = req.params
+    const db = getCompanyDb(empresaId)
     
+    // Buscar pedido
+    const pedido = db.prepare('SELECT * FROM pedidos WHERE id = ?').get(id)
+    
+    if (!pedido) {
+      return res.status(404).json({ error: 'Pedido não encontrado' })
+    }
+    
+    if (pedido.status !== 'aprovado') {
+      return res.status(400).json({ error: 'Apenas pedidos aprovados podem ser faturados' })
+    }
+    
+    // Buscar cliente
+    const cliente = db.prepare('SELECT razao_social FROM clientes WHERE id = ?').get(pedido.cliente_id)
+    
+    // Criar registro financeiro (contas a receber)
+    const insertFinanceiro = db.prepare(`
+      INSERT INTO financeiro (
+        tipo, descricao, cliente_fornecedor, valor, 
+        data_vencimento, status, forma_pagamento, 
+        pedido_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    `)
+    
+    const dataVencimento = pedido.data_entrega || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+    
+    insertFinanceiro.run(
+      'receber',
+      `Pedido ${pedido.numero}`,
+      cliente?.razao_social || 'Cliente',
+      pedido.valor_final,
+      dataVencimento,
+      'pendente',
+      'A definir',
+      id
+    )
+    
+    // Atualizar status do pedido
+    db.prepare('UPDATE pedidos SET status = ? WHERE id = ?').run('faturado', id)
+    
+    res.json({ message: 'Pedido faturado com sucesso' })
+  } catch (error) {
+    console.error('Erro ao faturar pedido:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+// Desfaturar pedido (remove registro financeiro)
+app.put('/api/empresas/:empresaId/pedidos/:id/desfaturar', authenticateToken, async (req, res) => {
+  try {
+    const { empresaId, id } = req.params
+    const db = getCompanyDb(empresaId)
+    
+    // Buscar pedido
+    const pedido = db.prepare('SELECT * FROM pedidos WHERE id = ?').get(id)
+    
+    if (!pedido) {
+      return res.status(404).json({ error: 'Pedido não encontrado' })
+    }
+    
+    if (pedido.status !== 'faturado') {
+      return res.status(400).json({ error: 'Apenas pedidos faturados podem ser desfaturados' })
+    }
+    
+    // Verificar se há NFe gerada
+    const nfe = db.prepare('SELECT id FROM nfes WHERE pedido_id = ?').get(id)
+    if (nfe) {
+      return res.status(400).json({ error: 'Não é possível desfaturar pedido com NFe gerada' })
+    }
+    
+    // Remover registro financeiro
+    db.prepare('DELETE FROM financeiro WHERE pedido_id = ?').run(id)
+    
+    // Voltar status do pedido para aprovado
+    db.prepare('UPDATE pedidos SET status = ? WHERE id = ?').run('aprovado', id)
+    
+    res.json({ message: 'Pedido desfaturado com sucesso' })
+  } catch (error) {
+    console.error('Erro ao desfaturar pedido:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+// Faturar pedido (cria registro financeiro)
+
+// Desfaturar pedido (remove registro financeiro)
+app.put('/api/empresas/:empresaId/pedidos/:id/desfaturar', authenticateToken, async (req, res) => {
+  try {
+    const { empresaId, id } = req.params
+    const db = getCompanyDb(empresaId)
+    
+    // Buscar pedido
+    const pedido = db.prepare('SELECT * FROM pedidos WHERE id = ?').get(id)
+    
+    if (!pedido) {
+      return res.status(404).json({ error: 'Pedido não encontrado' })
+    }
+    
+    if (pedido.status !== 'faturado') {
+      return res.status(400).json({ error: 'Apenas pedidos faturados podem ser desfaturados' })
+    }
+    
+    // Verificar se há NFe gerada
+    const nfe = db.prepare('SELECT id FROM nfes WHERE pedido_id = ?').get(id)
+    if (nfe) {
+      return res.status(400).json({ error: 'Não é possível desfaturar pedido com NFe gerada' })
+    }
+    
+    // Remover registro financeiro
+    db.prepare('DELETE FROM financeiro WHERE pedido_id = ?').run(id)
+    
+    // Voltar status do pedido para aprovado
+    db.prepare('UPDATE pedidos SET status = ? WHERE id = ?').run('aprovado', id)
+    
+    res.json({ message: 'Pedido desfaturado com sucesso' })
+  } catch (error) {
+    console.error('Erro ao desfaturar pedido:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+    }
+    
+    if (pedido.status !== 'pendente') {
+      return res.status(400).json({ error: 'Apenas pedidos pendentes podem ser rejeitados' })
+    }
+    
+    // Rejeitar pedido
+    db.prepare(`
+      UPDATE pedidos 
+      SET status = 'rejeitado', 
+          rejeitado_por = ?, 
+          rejeitado_em = CURRENT_TIMESTAMP,
+          motivo_rejeicao = ?,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(req.user.id, motivo || 'Sem motivo informado', id)
+    
+    res.json({ success: true, message: 'Pedido rejeitado' })
+  } catch (error) {
+    console.error('Erro ao rejeitar pedido:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
 // Cancelar pedido
 app.put('/api/empresas/:empresaId/pedidos/:id/cancelar', authenticateToken, async (req, res) => {
   try {

@@ -1,5 +1,5 @@
 import React from 'react';
-import { LayoutDashboardIcon, FileTextIcon, ListIcon, BuildingIcon, UsersIcon, PackageIcon, TruckIcon, UserIcon, DatabaseIcon, SettingsIcon, SlidersIcon, CreditCardIcon, CrownIcon } from 'lucide-react';
+import { LayoutDashboardIcon, FileTextIcon, ListIcon, BuildingIcon, UsersIcon, PackageIcon, TruckIcon, UserIcon, DatabaseIcon, SettingsIcon, SlidersIcon, CreditCardIcon, CrownIcon, ShoppingCartIcon, DollarSignIcon } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 interface SidebarProps {
   currentPage: string;
@@ -19,6 +19,11 @@ export function Sidebar({
     icon: LayoutDashboardIcon,
     show: true
   }, {
+    id: 'orders',
+    label: 'Pedidos',
+    icon: ShoppingCartIcon,
+    show: true
+  }, {
     id: 'new-nfe',
     label: 'Emitir NFe',
     icon: FileTextIcon,
@@ -27,6 +32,11 @@ export function Sidebar({
     id: 'nfe-list',
     label: 'Notas Emitidas',
     icon: ListIcon,
+    show: true
+  }, {
+    id: 'financial',
+    label: 'Financeiro',
+    icon: DollarSignIcon,
     show: true
   }, {
     id: 'clients',
@@ -50,7 +60,7 @@ export function Sidebar({
     show: !isSuperUser
   }, {
     id: 'billing',
-    label: isSuperUser ? 'Financeiro' : 'Minhas Faturas',
+    label: isSuperUser ? 'Cobranças' : 'Minhas Faturas',
     icon: CreditCardIcon,
     show: true
   }, {

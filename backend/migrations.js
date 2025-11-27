@@ -379,6 +379,70 @@ class MigrationSystem {
     console.log(`✓ ${migrationName} aplicada com sucesso em ${dbName}`);
   }
 
+   // NOVA Migração 10: Criar tabela de financeiro
+  migration_011_create_financeiro(db, dbName) {
+    const migrationName = 'migration_011_create_financeiro';
+    if (this.hasMigration(dbName, migrationName)) {
+      console.log(`✓ ${migrationName} já aplicada em ${dbName}`);
+      return;
+    }
+    console.log(`→ Aplicando ${migrationName} em ${dbName}...`);
+    db.exec(`
+     CREATE TABLE IF NOT EXISTS financeiro (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tipo TEXT NOT NULL CHECK(tipo IN ('receber', 'pagar')),
+        descricao TEXT NOT NULL,
+        cliente_fornecedor TEXT NOT NULL,
+        valor REAL NOT NULL,
+        data_vencimento TEXT NOT NULL,
+        data_pagamento TEXT,
+        status TEXT NOT NULL DEFAULT 'pendente' CHECK(status IN ('pendente', 'pago', 'vencido', 'cancelado')),
+        forma_pagamento TEXT,
+        observacoes TEXT,
+        pedido_id INTEGER,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (pedido_id) REFERENCES pedidos(id)
+      );
+    `);
+    console.log('  ✓ Tabela configuracoes criada');
+    }
+
+  // Migração 9: Adicionar IE na tabela enderecos_entrega
+  migration_012_add_pedido_id_to_financeiro(db, dbName) {
+    const migrationName = 'migration_011_add_pedido_id_to_financeiro';
+    if (this.hasMigration(dbName, migrationName)) {
+      console.log(`✓ ${migrationName} já aplicada em ${dbName}`);
+      return;
+    }
+    console.log(`→ Aplicando ${migrationName} em ${dbName}...`);
+    const tableInfo = db.prepare("PRAGMA table_info(financeiro)").all();
+    const hasIe = tableInfo.some(col => col.name === 'pedido_id');
+    if (!hasIe) {
+      db.exec(`ALTER TABLE financeiro ADD COLUMN pedido_id INTEGER REFERENCES pedidos(id);`);
+      console.log('  ✓ Coluna ie adicionada em financeiro');
+    }
+    this.markMigrationApplied(dbName, migrationName);
+    console.log(`✓ ${migrationName} aplicada com sucesso em ${dbName}`);
+  }
+
+  migration_013_add_pedido_id_to_nfes(db, dbName) {
+    const migrationName = 'migration_013_add_pedido_id_to_nfes';
+    if (this.hasMigration(dbName, migrationName)) {
+      console.log(`✓ ${migrationName} já aplicada em ${dbName}`);
+      return;
+    }
+    console.log(`→ Aplicando ${migrationName} em ${dbName}...`);
+    const tableInfo = db.prepare("PRAGMA table_info(nfes)").all();
+    const hasIe = tableInfo.some(col => col.name === 'pedido_id');
+    if (!hasIe) {
+      db.exec(`ALTER TABLE nfes ADD COLUMN pedido_id INTEGER REFERENCES pedidos(id);`);
+      console.log('  ✓ Coluna ie adicionada em nfes');
+    }
+    this.markMigrationApplied(dbName, migrationName);
+    console.log(`✓ ${migrationName} aplicada com sucesso em ${dbName}`);
+  }
+
+
   // Executar todas as migrações no banco principal
   runMainDbMigrations(db) {
     console.log('\n📦 Executando migrações no banco principal...');
@@ -398,6 +462,11 @@ class MigrationSystem {
     this.migration_006_add_veiculo_to_transportadora(db, dbName);
     this.migration_008_add_transportadora_to_enderecos(db, dbName);
     this.migration_009_add_ie_to_enderecos(db, dbName);
+    // this.migration_010_create_configuracoes(db, dbName);
+
+    this.migration_011_create_financeiro(db, dbName);
+    this.migration_012_add_pedido_id_to_financeiro(db, dbName);
+    this.migration_013_add_pedido_id_to_nfes(db, dbName);
   }
 
   // Executar migrações em todos os bancos de empresas existentes

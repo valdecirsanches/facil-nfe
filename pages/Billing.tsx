@@ -1,10 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, Component } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Dialog } from '../components/ui/Dialog';
 import { Input } from '../components/ui/Input';
-import { DollarSignIcon, CheckCircleIcon, XCircleIcon, ClockIcon, DownloadIcon, CreditCardIcon, CopyIcon, QrCodeIcon } from 'lucide-react';
+import { DollarSignIcon, CheckCircleIcon, XCircleIcon, ClockIcon, DownloadIcon, CreditCardIcon, CopyIcon, QrCodeIcon, AlertCircleIcon } from 'lucide-react';
 import { toast } from 'sonner';
 interface Invoice {
   id: number;
@@ -47,6 +47,7 @@ export function Billing() {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('pix');
   const [pixData, setPixData] = useState<PixData | null>(null);
   const [generatingPix, setGeneratingPix] = useState(false);
+  const [qrCodeUrl, setQrCodeUrl] = useState<string>('');
   // Card form state
   const [cardNumber, setCardNumber] = useState('');
   const [cardName, setCardName] = useState('');
@@ -56,6 +57,21 @@ export function Billing() {
   useEffect(() => {
     fetchData();
   }, [selectedCompany]);
+  // Gerar QR Code quando pixData mudar
+  useEffect(() => {
+    if (pixData?.pixCode) {
+      generateQRCode(pixData.pixCode);
+    }
+  }, [pixData]);
+  const generateQRCode = async (text: string) => {
+    try {
+      // Usar API pública para gerar QR Code
+      const url = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(text)}`;
+      setQrCodeUrl(url);
+    } catch (error) {
+      console.error('Erro ao gerar QR Code:', error);
+    }
+  };
   const fetchData = async () => {
     try {
       const token = localStorage.getItem('token');
@@ -109,18 +125,16 @@ export function Billing() {
     }
   };
   const handleOpenPayment = (invoice: Invoice) => {
-    console.log('🔍 Abrindo modal de pagamento para fatura:', invoice.id);
     setSelectedInvoice(invoice);
     setPaymentMethod('pix');
     setPixData(null);
+    setQrCodeUrl('');
     setShowPaymentModal(true);
-    // Gerar PIX após modal abrir
     setTimeout(() => {
       handleGeneratePix(invoice);
     }, 300);
   };
   const handleGeneratePix = async (invoice: Invoice) => {
-    console.log('💳 Gerando PIX para fatura:', invoice.id);
     setGeneratingPix(true);
     try {
       const token = localStorage.getItem('token');
@@ -135,12 +149,11 @@ export function Billing() {
         throw new Error(error.error || 'Erro ao gerar PIX');
       }
       const data = await response.json();
-      console.log('✅ PIX gerado:', data);
       setPixData(data);
       toast.success('PIX gerado com sucesso!');
       fetchData();
     } catch (error: any) {
-      console.error('❌ Erro ao gerar PIX:', error);
+      console.error('Erro ao gerar PIX:', error);
       toast.error(error.message || 'Erro ao gerar PIX');
     } finally {
       setGeneratingPix(false);
@@ -386,6 +399,7 @@ export function Billing() {
       setShowPaymentModal(false);
       setPixData(null);
       setSelectedInvoice(null);
+      setQrCodeUrl('');
     }} title="Escolha a forma de pagamento" showFooter={false}>
         <div className="space-y-6">
           {/* Seletor de Método */}
@@ -414,6 +428,23 @@ export function Billing() {
                   <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto mb-4"></div>
                   <p className="text-gray-600">Gerando PIX...</p>
                 </div> : pixData ? <>
+                  {/* Aviso sobre QR Code */}
+                  <Card className="p-4 bg-yellow-50 border-yellow-200">
+                    <div className="flex items-start gap-3">
+                      <AlertCircleIcon size={20} className="text-yellow-600 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-sm font-medium text-yellow-900 mb-1">
+                          ⚠️ QR Code de Demonstração
+                        </p>
+                        <p className="text-xs text-yellow-800">
+                          O QR Code exibido é apenas visual. Para pagamento
+                          real, copie o código PIX abaixo e cole no app do seu
+                          banco.
+                        </p>
+                      </div>
+                    </div>
+                  </Card>
+
                   <Card className="p-4 bg-gray-50">
                     <div className="space-y-2">
                       <div className="flex justify-between">
@@ -447,25 +478,21 @@ export function Billing() {
                     </div>
                   </Card>
 
+                  {/* QR Code Visual */}
                   <div className="flex justify-center p-6 bg-white border-2 border-gray-200 rounded-lg">
                     <div className="text-center">
-                      <div className="bg-white p-4 inline-block">
-                        <div className="w-[200px] h-[200px] bg-gray-100 flex items-center justify-center rounded">
-                          <div>
-                            <QrCodeIcon size={80} className="text-gray-400 mx-auto mb-2" />
-                            <p className="text-xs text-gray-500">QR Code PIX</p>
-                          </div>
-                        </div>
-                      </div>
-                      <p className="text-sm text-gray-600 mt-2">
-                        Escaneie com o app do banco
+                      {qrCodeUrl ? <img src={qrCodeUrl} alt="QR Code PIX (Demonstração)" className="w-[200px] h-[200px] mx-auto" /> : <div className="w-[200px] h-[200px] bg-gray-100 flex items-center justify-center rounded">
+                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600"></div>
+                        </div>}
+                      <p className="text-xs text-gray-500 mt-2">
+                        QR Code de demonstração
                       </p>
                     </div>
                   </div>
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Ou copie o código PIX
+                      ✅ Copie o código PIX para pagamento real
                     </label>
                     <div className="flex gap-2">
                       <input type="text" value={pixData.pixCode} readOnly className="flex-1 px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-xs font-mono" />
@@ -479,13 +506,15 @@ export function Billing() {
                     <p className="text-sm text-blue-900">
                       <strong>💡 Como pagar:</strong>
                       <br />
-                      1. Abra o app do seu banco
+                      1. Copie o código PIX acima
                       <br />
-                      2. Escolha "Pagar com PIX"
+                      2. Abra o app do seu banco
                       <br />
-                      3. Escaneie o QR Code ou cole o código
+                      3. Escolha "Pagar com PIX"
                       <br />
-                      4. Confirme o pagamento
+                      4. Cole o código copiado
+                      <br />
+                      5. Confirme o pagamento
                     </p>
                   </div>
                 </> : <div className="text-center py-8">
@@ -554,6 +583,7 @@ export function Billing() {
           setShowPaymentModal(false);
           setPixData(null);
           setSelectedInvoice(null);
+          setQrCodeUrl('');
         }} disabled={processingPayment}>
             Cancelar
           </Button>
